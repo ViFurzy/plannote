@@ -957,6 +957,26 @@ await test("text size: type px by hand for the selected text", async ({ page }) 
   assert.equal(await page.inputValue("#fsize"), "51", "+ steps by 1px");
 });
 
+await test("iPhone 14 Pro: the page never zooms or scrolls, touch fields are 16px, adding a card leaves the bars where they are", async () => {
+  const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
+  const page = await ctx.newPage(); page.setDefaultTimeout(8000);
+  await page.goto(`${URL}/?u=iph${Date.now().toString(36)}`);
+  await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live");
+  const snap = () => page.evaluate(() => ({
+    scale: visualViewport!.scale, scroll: [scrollX, scrollY], wide: document.documentElement.scrollWidth, top: document.getElementById("top")!.getBoundingClientRect().top,
+    body: document.body.getBoundingClientRect().toJSON(), inner: [innerWidth, innerHeight], max: document.querySelector('meta[name=viewport]')!.getAttribute("content"),
+    fonts: ["q", "bq", "fsize"].map((id) => parseFloat(getComputedStyle(document.getElementById(id)!).fontSize)),
+  }));
+  const a = await snap();
+  assert.match(a.max!, /maximum-scale=1/, "the viewport tag forbids page zoom, so iOS cannot zoom into a focused field");
+  assert.ok(a.fonts.every((f) => f >= 16), "fields are 16px on touch screens: " + a.fonts);
+  await page.tap("#note"); await page.keyboard.type("hello"); await settle(page, 500);
+  const b = await snap();
+  assert.equal(b.scale, 1, "no page zoom after adding a card"); assert.deepEqual(b.scroll, [0, 0], "the page did not scroll"); assert.equal(b.top, 0, "the top bar stayed put");
+  assert.equal(b.wide, a.wide, "nothing got wider"); assert.deepEqual([b.body.width, b.body.height], [b.inner[0], b.inner[1]], "the page is exactly the visible screen");
+  await ctx.close();
+});
+
 await test("phone: one row top bar, nothing wider than the screen, tap targets 40px, one finger pans, two fingers pinch-zoom", async () => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   const page = await ctx.newPage(); page.setDefaultTimeout(8000);

@@ -1,5 +1,5 @@
 <!doctype html>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>boardsync</title>
 <style>
   :root {
@@ -30,7 +30,8 @@
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
   body {
-    margin: 0; height: 100vh; overflow: hidden; color: var(--ink); user-select: none;
+    /* the page itself never scrolls or resizes: fixed to the visible screen (dvh: the height WITHOUT Safari's collapsing toolbar games), so a focused field cannot push the bars away */
+    margin: 0; position: fixed; left: 0; top: 0; width: 100%; height: 100vh; height: 100dvh; overflow: hidden; overscroll-behavior: none; color: var(--ink); user-select: none; -webkit-text-size-adjust: 100%;
     font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
     background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 24px 24px;
   }
@@ -376,6 +377,10 @@
   /* touch: the board is moved by our own gestures (one finger pans, two pinch), so the browser must not scroll or zoom the page; lists that scroll say so */
   body { touch-action: none; }
   #outline { touch-action: pan-y pinch-zoom; } #ctx, #bpanel, #expop, #setpop, #bgpop, #trash, #impdlg { touch-action: pan-y; } #tools { touch-action: pan-x pan-y; }
+  /* iOS zooms the whole page into any field whose text is under 16px: the chrome's fields are 16px on touch screens (the board has its own zoom) */
+  @media (pointer: coarse) { #search #q, #bpanel #bq, #picker #phex, #fmt .size #fsize { font-size: 16px; } }
+  body.kb #tools { display: none; } /* the on-screen keyboard is up: the tool strip would only sit on top of it */
+  body.kb #ctx { top: auto; bottom: calc(var(--kb, 0px) + 8px); }
   @media (pointer: coarse) { .btn { min-height: 40px; min-width: 40px; } .seg .sw { width: 32px; height: 32px; } #expop .item, #setpop .item { min-height: 40px; } }
   @media (max-width: 640px) {
     /* phone: the top bar is one row you can swipe sideways; the tools sit along the bottom; the options panel is a sheet above them; zoom is under the top bar */
@@ -393,7 +398,7 @@
     #trash { left: 8px; right: 8px; width: auto; bottom: 84px; }
     #ctx { top: auto; bottom: calc(max(8px, env(safe-area-inset-bottom)) + 70px); } /* phone: the options bar sits above the tool strip, in reach of the thumb */
     #fmtPal { position: static; }
-    #bgpop, #setpop, #expop, #bpanel { max-width: calc(100vw - 16px); max-height: calc(100vh - 140px); overflow-y: auto; }
+    #bgpop, #setpop, #expop, #bpanel { max-width: calc(100vw - 16px); max-height: calc(100vh - 140px); max-height: calc(100dvh - 140px); overflow-y: auto; }
     #impdlg { top: 64px; }
     #outline { padding: 14px 12px 96px; } #bgpop .seg { flex-wrap: wrap; }
   }
@@ -2062,6 +2067,22 @@ $("presentBtn").onclick = () => present(true);
 $("themeBtn").onclick = toggleTheme;
 $("gearBtn").onclick = () => { $("bgpop").hidden = $("expop").hidden = true; $("setpop").hidden = !$("setpop").hidden; };
 $("setpop").onclick = (e) => { if (e.target.closest(".item")) $("setpop").hidden = true; };
+
+// --- phones ---
+// The board has its own pan and zoom, so the browser must never zoom the page: iOS ignores touch-action for pinches, hence these (and maximum-scale in the viewport tag).
+for (const g of ["gesturestart", "gesturechange", "gestureend"]) document.addEventListener(g, (e) => e.preventDefault());
+// The on-screen keyboard shrinks the VISUAL viewport only. --kb is how much of the bottom it covers: the options bar rides on top of it, the tool strip steps aside,
+// and if Safari scrolled the page to show the field, it is put back so the top bar stays where it is.
+if (window.visualViewport) {
+  const vv = visualViewport, fit = () => {
+    const kb = Math.max(0, Math.round(innerHeight - vv.height - vv.offsetTop));
+    document.documentElement.style.setProperty("--kb", kb + "px");
+    document.body.classList.toggle("kb", kb > 120 && matchMedia("(pointer: coarse)").matches);
+    if (vv.offsetTop || scrollY) scrollTo(0, 0);
+  };
+  vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit);
+}
+if (matchMedia("(max-width: 640px)").matches) $("q").placeholder = "Search";
 
 // --- tools: line and freehand drawing ---
 function setTool(t) {
