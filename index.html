@@ -346,10 +346,28 @@
   #olist .o-chip { display: inline-block; width: 18px; height: 18px; border-radius: 50%; vertical-align: middle; margin-right: 6px; border: 1px solid var(--line); }
   #olist .o-empty { color: var(--muted); text-align: center; padding: 40px 0; }
   #outlineBtn.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  /* touch: the board is moved by our own gestures (one finger pans, two pinch), so the browser must not scroll or zoom the page; lists that scroll say so */
+  body { touch-action: none; }
+  #outline { touch-action: pan-y pinch-zoom; } #ctx, #bpanel, #expop, #bgpop, #trash, #impdlg { touch-action: pan-y; } #tools { touch-action: pan-x pan-y; }
+  @media (pointer: coarse) { .btn { min-height: 40px; min-width: 40px; } .seg .sw { width: 32px; height: 32px; } #expop .item { min-height: 40px; } }
   @media (max-width: 640px) {
-    #tools { top: auto; bottom: 12px; left: 50%; transform: translateX(-50%); flex-direction: row; max-width: calc(100vw - 24px); }
-    .sep { width: 1px; height: auto; margin: 8px 4px; }
-    #trash { left: 12px; bottom: 88px; } #zoom { bottom: 88px; } #ctx { left: 12px; top: 100px; }
+    /* phone: the top bar is one row you can swipe sideways; the tools sit along the bottom; the options panel is a sheet above them; zoom is under the top bar */
+    #top { gap: 6px; padding: 4px 8px; }
+    #side { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; gap: 4px; scrollbar-width: none; touch-action: pan-x; }
+    #side::-webkit-scrollbar { display: none; }
+    #side > .pill { flex: 0 0 auto; } #side > .pill + .pill { padding-left: 8px; margin-left: 0; }
+    #crumbs { max-width: 38vw; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: block; line-height: 40px; }
+    #search input { width: 96px; } #qcount { display: none; }
+    #st { font-size: 0; gap: 0; padding: 0 6px; }
+    #tools { top: auto; bottom: max(8px, env(safe-area-inset-bottom)); left: 8px; right: 8px; transform: none; flex-direction: row; overflow-x: auto; overflow-y: hidden; max-height: none; gap: 0; scrollbar-width: none; }
+    .tool { flex: 0 0 auto; width: 64px; min-height: 52px; white-space: nowrap; font-size: 11px; }
+    .sep { flex: 0 0 1px; width: 1px; height: auto; margin: 8px 4px; }
+    #zoom { top: 58px; right: 8px; bottom: auto; }
+    #trash { left: 8px; right: 8px; width: auto; bottom: 84px; }
+    #ctx { left: 8px; right: 8px; top: auto; bottom: calc(max(8px, env(safe-area-inset-bottom)) + 70px); width: auto; max-height: 40vh; }
+    #bgpop, #expop, #bpanel { max-width: calc(100vw - 16px); max-height: calc(100vh - 140px); overflow-y: auto; }
+    #impdlg { top: 64px; }
+    #outline { padding: 14px 12px 96px; } #ctx .seg, #bgpop .seg { flex-wrap: wrap; }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -636,7 +654,7 @@ function fit() {
     const k = (c.classList.contains("line") ? c.querySelector("svg") : c).getBoundingClientRect(), a = toBoard(k.left, k.top), z = toBoard(k.right, k.bottom);
     l = Math.min(l, a.x); t = Math.min(t, a.y); r = Math.max(r, z.x); b = Math.max(b, z.y);
   }
-  const pad = 40, left = 96, top = 70, w = innerWidth - left - 24, h = innerHeight - top - 24;
+  const phone = innerWidth <= 640, pad = 40, left = phone ? 16 : 96, top = 70, w = innerWidth - left - 24, h = innerHeight - top - (phone ? 90 : 24); // on a phone the tools run along the bottom
   const z = clamp(Math.min(w / (r - l + 2 * pad), h / (b - t + 2 * pad)), 0.25, 1.5);
   view = { z, x: left + (w - (r - l) * z) / 2 - l * z, y: top + (h - (b - t) * z) / 2 - t * z };
   applyView();
@@ -835,7 +853,7 @@ Object.assign(FMT, { sizeUp: () => textSize(1), sizeDown: () => textSize(-1), co
 $("fmtPal").innerHTML = inkSwatches("data-color");
 $("fmt").onclick = (e) => {
   const sw = e.target.closest("[data-color]");
-  if (sw) return void textColour(sw.dataset.color);
+  if (sw) return void (textColour(sw.dataset.color), ($("fmtPal").hidden = true));
   const b = e.target.closest("button[data-c]");
   if (b) (FMT[b.dataset.c] ?? (() => document.execCommand(b.dataset.c)))();
 };
@@ -850,7 +868,7 @@ function markdownShortcut(root) {
   return true;
 }
 addEventListener("focusin", (e) => { $("fmt").hidden = !e.target.matches?.(".note .text[contenteditable=true]"); });
-addEventListener("focusout", (e) => { if (e.target.matches?.(".note .text")) $("fmt").hidden = true; });
+addEventListener("focusout", (e) => { if (e.target.matches?.(".note .text")) $("fmt").hidden = $("fmtPal").hidden = true; });
 $("colorbar").onclick = (e) => {
   const b = e.target.closest("button[data-val]");
   if (!b) return;
@@ -986,6 +1004,17 @@ function applyBg() {
   showCustom($("bgpop"), [tint]);
 }
 $("bgBtn").onclick = () => { $("bgpop").hidden = !$("bgpop").hidden; applyBg(); };
+// top-bar popups: each opens right under the button that owns it, and closes on a click elsewhere or Esc
+const POPS = [["bgpop", "bgBtn"], ["expop", "expBtn"], ["bpanel", "boardsBtn"]];
+function placePop([pop, btn]) {
+  const p = $(pop), r = $(btn).getBoundingClientRect();
+  if (p.hidden) return;
+  p.style.right = "auto"; p.style.left = Math.max(8, Math.min(r.left, innerWidth - p.offsetWidth - 8)) + "px"; p.style.top = r.bottom + 8 + "px";
+}
+POPS.forEach((pb) => new MutationObserver(() => placePop(pb)).observe($(pb[0]), { attributes: true, attributeFilter: ["hidden"] }));
+addEventListener("resize", () => POPS.forEach(placePop));
+addEventListener("pointerdown", (e) => POPS.forEach(([pop, btn]) => { if (!$(pop).hidden && !e.target.closest(`#${pop}, #${btn}, #picker, .sw.custom`)) $(pop).hidden = true; }), true);
+addEventListener("keydown", (e) => { if (e.key === "Escape") POPS.forEach(([pop]) => ($(pop).hidden = true)); }, true);
 $("bgpop").onclick = (e) => {
   const b = e.target.closest("button[data-val]");
   if (!b || !els[B]) return;
@@ -1551,9 +1580,36 @@ addEventListener("pointerdown", (e) => {
   if (e.button === 1 || (spaceDown && e.button === 0)) { e.preventDefault(); return startPan(e); }
   if (e.button === 0 && tool === "line") { e.preventDefault(); return startLine(e); }
   if (e.button === 0 && tool === "draw") { e.preventDefault(); return startStroke(e); }
+  if (e.pointerType === "touch" && e.button === 0 && !e.target.closest(".card")) return startTouchView(e);
   if (e.button === 0 && !e.target.closest(".card")) startMarquee(e);
 });
-function startPan(e) {
+// touch: one finger on the empty board pans it, two fingers pinch-zoom around their middle; a tap on empty space clears the selection
+const fingers = new Map();
+function startTouchView(e) {
+  fingers.set(e.pointerId, [e.clientX, e.clientY]);
+  if (fingers.size > 1) return; // the second finger is picked up by the handlers the first one installed
+  let moved = false;
+  const move = (m) => {
+    const old = fingers.get(m.pointerId); if (!old) return;
+    const before = [...fingers.values()]; fingers.set(m.pointerId, [m.clientX, m.clientY]);
+    const now = [...fingers.values()]; moved = true;
+    const mid = (f) => [(f[0][0] + f[f.length - 1][0]) / 2, (f[0][1] + f[f.length - 1][1]) / 2];
+    const [bx, by] = mid(before), [nx, ny] = mid(now);
+    view.x += nx - bx; view.y += ny - by;
+    if (now.length > 1) { // pinch: the board point between the fingers stays between them
+      const d = (f) => Math.hypot(f[0][0] - f[1][0], f[0][1] - f[1][1]), z = clamp(view.z * (d(now) / (d(before) || 1)), 0.25, 2);
+      view.x = nx - (nx - view.x) * (z / view.z); view.y = ny - (ny - view.y) * (z / view.z); view.z = z;
+    }
+    applyView();
+  };
+  const up = (u) => {
+    fingers.delete(u.pointerId);
+    if (fingers.size) return;
+    removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", up);
+    if (!moved) setSel([]);
+  };
+  addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", up);
+}function startPan(e) {
   let x = e.clientX, y = e.clientY;
   const move = (m) => { view.x += m.clientX - x; view.y += m.clientY - y; x = m.clientX; y = m.clientY; applyView(); };
   const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); };
@@ -1634,7 +1690,7 @@ const SIZE = { CARD: [200, 64], COLUMN: [240, 140], BOARD: [124, 150], TASK_LIST
 function freeSpot(type) {
   const [w, h] = SIZE[type], gap = 16;
   const taken = topCards().map((c) => { const r = c.getBoundingClientRect(), a = toBoard(r.left, r.top), b = toBoard(r.right, r.bottom); return { l: a.x, t: a.y, r: b.x, b: b.y }; });
-  const o = toBoard(innerWidth > 720 ? 390 : 110, 80), far = toBoard(innerWidth, innerHeight); // new cards start to the right of the options panel, below the top bar
+  const o = toBoard(innerWidth > 720 ? 390 : 24, innerWidth > 720 ? 80 : 120), far = toBoard(innerWidth, innerHeight); // new cards start to the right of the options panel, below the top bar
   for (let y = o.y; y < far.y - h; y += 24)
     for (let x = o.x; x < far.x - w; x += 24)
       if (!taken.some((k) => x < k.r + gap && x + w + gap > k.l && y < k.b + gap && y + h + gap > k.t)) return { x: Math.round(x), y: Math.round(y) };

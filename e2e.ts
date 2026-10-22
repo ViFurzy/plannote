@@ -889,6 +889,42 @@ await test("link card: hide and show its picture, description and address from t
   assert.equal(await shown(".link .thumb") && await shown(".link .pdesc") && await shown(".link .title"), true, "everything is back");
 });
 
+await test("top-bar popups open under their own button and close on a click elsewhere or Esc", async ({ page }) => {
+  for (const [btn, pop] of [["bgBtn", "bgpop"], ["expBtn", "expop"], ["boardsBtn", "bpanel"]]) {
+    await page.click("#" + btn);
+    const b = (await page.locator("#" + btn).boundingBox())!, p = (await page.locator("#" + pop).boundingBox())!;
+    assert.ok(Math.abs(p.x - b.x) < 2 || p.x === 8 || p.x + p.width > 1000, `${pop} sits at its button`);
+    assert.ok(p.y >= b.y + b.height && p.y - (b.y + b.height) < 20, `${pop} is just under its button`);
+    await page.mouse.click(700, 500); // empty board
+    assert.equal(await page.locator("#" + pop).isVisible(), false, `${pop} closes on a click on the board`);
+    await page.click("#" + btn); await page.keyboard.press("Escape");
+    assert.equal(await page.locator("#" + pop).isVisible(), false, `${pop} closes on Esc`);
+  }
+});
+
+await test("phone: one row top bar, nothing wider than the screen, tap targets 40px, one finger pans, two fingers pinch-zoom", async () => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const page = await ctx.newPage(); page.setDefaultTimeout(8000);
+  await page.goto(`${URL}/?u=phone${Date.now().toString(36)}`);
+  await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live");
+  const m = await page.evaluate(() => ({
+    wide: document.documentElement.scrollWidth, bar: document.getElementById("top")!.getBoundingClientRect().height,
+    small: [...document.querySelectorAll<HTMLElement>("#top .btn, #zoom .btn, .tool")].filter((e) => { const r = e.getBoundingClientRect(); return r.width < 40 || r.height < 40; }).length,
+    tools: document.getElementById("tools")!.getBoundingClientRect().bottom,
+  }));
+  assert.equal(m.wide, 390, "no sideways scroll"); assert.ok(m.bar < 60, "top bar is one row"); assert.equal(m.small, 0, "every button is at least 40px");
+  assert.ok(m.tools <= 844, "tools are on screen");
+  const cdp = await ctx.newCDPSession(page), pt = (id: number, x: number, y: number) => ({ x, y, id });
+  const touch = (type: string, pts: any[]) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: pts });
+  const view = () => page.evaluate(() => ({ t: document.getElementById("canvas")!.style.transform, z: document.getElementById("zreset")!.textContent }));
+  const v0 = await view();
+  await touch("touchStart", [pt(1, 200, 400)]); await touch("touchMove", [pt(1, 260, 470)]); await touch("touchMove", [pt(1, 300, 520)]); await touch("touchEnd", []);
+  const v1 = await view(); assert.notEqual(v1.t, v0.t, "one finger pans the board"); assert.equal(v1.z, v0.z, "panning does not zoom");
+  await touch("touchStart", [pt(1, 150, 400), pt(2, 250, 400)]); await touch("touchMove", [pt(1, 100, 400), pt(2, 300, 400)]); await touch("touchMove", [pt(1, 60, 400), pt(2, 340, 400)]); await touch("touchEnd", []);
+  const v2 = await view(); assert.ok(parseInt(v2.z!) > 100, `two fingers apart zoom in (${v2.z})`);
+  await ctx.close();
+});
+
 await browser.close(); await srv.close(); pages.close(); rmSync(shots, { recursive: true, force: true });
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed`);
