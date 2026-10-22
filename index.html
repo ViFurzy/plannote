@@ -1,0 +1,1664 @@
+<!doctype html>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>boardsync</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #eceef2; --dot: #cdd2dc; --surface: #ffffff; --surface-2: #e2e5ec;
+    --ink: #161a21; --muted: #667085; --line: #d6dae3;
+    --accent: #2f5bd8; --accent-soft: #e6ecfc; --ok: #1f9d63; --bad: #d4483b;
+    --r: 8px;
+    --shadow: 0 1px 2px rgb(16 24 40 / .06), 0 1px 3px rgb(16 24 40 / .10);
+    --shadow-lift: 0 10px 28px rgb(16 24 40 / .20);
+    /* one palette for cards (tint), board tiles (tile + fg) and the board background */
+    --tint-sage: #e3eadf; --tint-teal: #d6e8ec; --tint-sand: #f1e5cf; --tint-orange: #fbdcc4; --tint-slate: #dfe3e8; --tint-rose: #f4dcd8; --tint-lilac: #e4def0;
+    --tile-sage: #c8d3c3; --tile-teal: #7fb3bf; --tile-sand: #e8d3b4; --tile-orange: #ef6c1a; --tile-slate: #5c6b7a; --tile-rose: #e7b9b3; --tile-lilac: #c3b8dc;
+    --fg-sage: #2b362b; --fg-teal: #12353d; --fg-sand: #4a3a20; --fg-orange: #ffffff; --fg-slate: #ffffff; --fg-rose: #4a2a27; --fg-lilac: #2f2650;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101318; --dot: #232831; --surface: #1a1e25; --surface-2: #232830;
+      --ink: #e7eaf0; --muted: #98a1b0; --line: #2c323c;
+      --accent: #7d98ff; --accent-soft: #1d2842; --ok: #4cc38a; --bad: #ff7a6b;
+      --shadow: 0 1px 2px rgb(0 0 0 / .4); --shadow-lift: 0 10px 28px rgb(0 0 0 / .55);
+      --tint-sage: #2c3629; --tint-teal: #24383d; --tint-sand: #3d3426; --tint-orange: #4a2f1c; --tint-slate: #2b323a; --tint-rose: #402b29; --tint-lilac: #332e43;
+      --tile-sage: #55664f; --tile-teal: #3f7a89; --tile-sand: #8a6f45; --tile-orange: #d9611a; --tile-slate: #6f7f90; --tile-rose: #9c615b; --tile-lilac: #6e5f98;
+      --fg-sage: #eef2ec; --fg-teal: #eaf5f7; --fg-sand: #fbf3e4; --fg-orange: #ffffff; --fg-slate: #ffffff; --fg-rose: #fbeeed; --fg-lilac: #f1edfa;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; height: 100vh; overflow: hidden; color: var(--ink); user-select: none;
+    font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 24px 24px;
+  }
+  body.pan, body.pan .card { cursor: grab; }
+
+  /* chrome */
+  #tools { position: fixed; left: 12px; top: 50%; transform: translateY(-50%); z-index: 9; display: flex; flex-direction: column; gap: 2px;
+           max-height: calc(100vh - 24px); overflow: auto; padding: 6px; background: var(--surface); border: 1px solid var(--line);
+           border-radius: var(--r); box-shadow: var(--shadow); }
+  .tool { all: unset; box-sizing: border-box; width: 56px; padding: 8px 0 6px; display: grid; justify-items: center; gap: 2px;
+          border-radius: calc(var(--r) - 2px); cursor: pointer; color: var(--muted); font-size: 11px; }
+  .tool:hover { background: var(--accent-soft); color: var(--accent); }
+  .tool:focus-visible { outline: 2px solid var(--accent); }
+  .tool.drop { background: var(--accent-soft); color: var(--bad); } /* a card is being dragged over Trash */
+  svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+  .sep { height: 1px; background: var(--line); margin: 4px 8px; }
+  #top { position: fixed; top: 12px; left: 84px; right: 12px; z-index: 9; display: flex; justify-content: space-between; gap: 12px; pointer-events: none; }
+  .pill { pointer-events: auto; display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--surface);
+          border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); color: var(--muted); }
+  #crumbs a { color: var(--muted); text-decoration: none; }
+  #crumbs a:hover { color: var(--accent); }
+  #crumbs a:last-child { color: var(--ink); font-weight: 600; }
+  #st::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  #st[data-state=live]::before { background: var(--ok); }
+  #st[data-state=bad]::before { background: var(--bad); }
+  #zoom { position: fixed; right: 12px; bottom: 12px; z-index: 9; padding: 4px; gap: 4px; }
+  #zreset { min-width: 52px; text-align: center; }
+  #hint { display: none; position: fixed; inset: 0; place-content: center; text-align: center; color: var(--muted); pointer-events: none; }
+  #canvas:empty + #hint { display: grid; }
+  #marquee { position: fixed; z-index: 8; pointer-events: none; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+  /* the zoomable layer: every card lives in here, positioned in board coordinates */
+  #canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+
+  /* cards */
+  .card { position: absolute; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow);
+          cursor: grab; touch-action: none; transition: box-shadow .15s; }
+  .card:hover { box-shadow: 0 2px 8px rgb(16 24 40 / .14); }
+  .card.dragging { box-shadow: var(--shadow-lift); cursor: grabbing; transition: none; }
+  .card.selected, .card:has(> [contenteditable=true]) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .card [contenteditable=true] { user-select: text; cursor: text; outline: none; }
+  .card input { user-select: text; }
+  .grip { position: absolute; }
+  .grip.e { top: 0; right: -5px; width: 10px; height: 100%; cursor: ew-resize; }
+  .grip.s { left: 0; bottom: -5px; width: 100%; height: 10px; cursor: ns-resize; }
+  .grip.se { right: -7px; bottom: -7px; width: 16px; height: 16px; cursor: nwse-resize; z-index: 1; } /* above the two edges where they meet */
+  .kids > .card > .grip { display: none; }
+  .text, .title { outline: none; overflow-wrap: anywhere; }
+  .note { width: 200px; padding: 10px 12px; }
+  .text { white-space: pre-wrap; min-height: 1.45em; }
+  .text:empty::before { content: "Type a note"; color: var(--muted); }
+  .text ul, .text ol { margin: 2px 0; padding-left: 22px; }
+  .text h1, .text h2, .text h3 { margin: 2px 0; font-size: 16px; line-height: 1.3; }
+  .text a { color: var(--accent); }
+  .column { width: 240px; padding: 10px; background: var(--surface-2); }
+  .column > .title { font-weight: 600; padding: 2px 4px 8px; }
+  .kids { counter-reset: k; min-height: 40px; display: flex; flex-direction: column; gap: 8px; }
+  .kids > .card { counter-increment: k; width: auto; } /* inside a column a card fills it, whatever its own width is */
+  .kids::after { color: var(--muted); font-size: 12px; padding: 2px 4px; }
+  .kids:not(:empty)::after { content: "Cards: " counter(k); }
+  .kids:empty::after { content: "Drop cards here"; border: 1px dashed var(--line); border-radius: var(--r); padding: 12px; text-align: center; }
+  .column.drop { outline: 2px dashed var(--accent); outline-offset: 2px; }
+  .board.drop .tile { outline: 3px dashed var(--accent); outline-offset: 4px; }
+  .card.cut { opacity: .45; } /* waiting to be pasted somewhere else */
+  /* colour: a card's tint, a board tile's fill */
+  [data-tint=sage] { --tint: var(--tint-sage); --tile: var(--tile-sage); --fg: var(--fg-sage); }
+  [data-tint=teal] { --tint: var(--tint-teal); --tile: var(--tile-teal); --fg: var(--fg-teal); }
+  [data-tint=sand] { --tint: var(--tint-sand); --tile: var(--tile-sand); --fg: var(--fg-sand); }
+  [data-tint=orange] { --tint: var(--tint-orange); --tile: var(--tile-orange); --fg: var(--fg-orange); }
+  [data-tint=slate] { --tint: var(--tint-slate); --tile: var(--tile-slate); --fg: var(--fg-slate); }
+  [data-tint=rose] { --tint: var(--tint-rose); --tile: var(--tile-rose); --fg: var(--fg-rose); }
+  [data-tint=lilac] { --tint: var(--tint-lilac); --tile: var(--tile-lilac); --fg: var(--fg-lilac); }
+  .card[data-tint]:not(.board) { background: var(--tint); }
+
+  /* a board is a rounded square with an icon, its name below, and what is inside it */
+  .card.board { width: 124px; padding: 0; background: none; border: 0; box-shadow: none; display: grid; justify-items: center; text-align: center; gap: 2px; }
+  .card.board:hover { box-shadow: none; }
+  .board .tile { width: 96px; height: 96px; border-radius: 22px; display: grid; place-items: center; background: var(--tile, var(--tile-sage)); color: var(--fg, var(--fg-sage)); box-shadow: var(--shadow); margin-bottom: 6px; }
+  .board .tile svg { width: 46px; height: 46px; stroke-width: 1.6; }
+  .board .title { font-weight: 700; font-size: 15px; max-width: 124px; }
+  .board .sub { color: var(--muted); font-size: 13px; min-height: 1.45em; }
+  .kids > .card.board { justify-self: center; }
+
+  .todo { width: 240px; padding: 10px 12px; }
+  .todo > .title { font-weight: 600; padding-bottom: 6px; }
+  .task { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+  .task input[type=checkbox] { flex: none; width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+  .task input[type=text] { flex: 1; min-width: 0; font: inherit; color: inherit; background: transparent; border: 0; border-bottom: 1px solid transparent; padding: 2px 0; outline: none; }
+  .task input[type=text]:focus { border-bottom-color: var(--accent); }
+  .task input:checked + input[type=text] { color: var(--muted); text-decoration: line-through; }
+  .meta { color: var(--muted); font-size: 12px; padding-top: 4px; }
+  .sheet { min-width: 260px; padding: 8px; }
+  .tbl { overflow: auto; max-width: 80vw; }
+  .tbl table { border-collapse: collapse; width: 100%; }
+  .tbl td { border: 1px solid var(--line); padding: 0; }
+  .tbl .cell { width: 100%; min-width: 80px; border: 0; background: transparent; font: inherit; color: inherit; padding: 5px 7px; outline: none; }
+  .tbl .cell:focus { background: var(--accent-soft); }
+  .tbl tr.head .cell { font-weight: 600; background: var(--surface-2); }
+  .tbl-tools { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 6px; }
+  .link { width: 240px; padding: 10px 12px; }
+  .link .domain { color: var(--muted); font-size: 12px; }
+  .link .thumb { display: block; width: calc(100% + 24px); margin: -10px -12px 8px; max-height: 180px; object-fit: cover; border-radius: inherit; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .link .ptitle { font-weight: 600; overflow-wrap: anywhere; padding-top: 2px; }
+  .link .pdesc { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .link .ptitle:empty, .link .pdesc:empty { display: none; }
+  .link .title { word-break: break-all; padding: 2px 0 8px; }
+  .image { width: 220px; padding: 6px; }
+  .image img { display: block; width: 100%; height: auto; border-radius: calc(var(--r) - 3px); pointer-events: none; }
+
+  /* lines: a zero-size anchor at the start point; the svg draws the shaft and arrowhead around it */
+  .card.line { width: 0; height: 0; padding: 0; background: none; border: 0; box-shadow: none; pointer-events: none; cursor: default; }
+  .card.line.selected { outline: none; }
+  .line svg { position: absolute; overflow: visible; pointer-events: none; }
+  .line .hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: grab; }
+  .line .vis, .line .head { fill: none; stroke: var(--ink); stroke-width: var(--w, 2); stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+  .line[data-color=blue] :is(.vis, .head) { stroke: var(--accent); }
+  .line[data-color=red] :is(.vis, .head) { stroke: var(--bad); }
+  .line[data-color=green] :is(.vis, .head) { stroke: var(--ok); }
+  .line[data-color=amber] :is(.vis, .head) { stroke: #d99a00; }
+  .line[data-color=custom] :is(.vis, .head) { stroke: var(--stroke); }
+  .line .h { display: none; fill: var(--surface); stroke: var(--accent); stroke-width: 2; pointer-events: all; cursor: crosshair; }
+  .line.selected .h { display: block; }
+  .line.selected :is(.vis, .head) { filter: drop-shadow(0 0 3px var(--accent)); } /* the colour is the user's choice, so selection is a glow */
+  /* floating option bars that follow the selection (line style, colour, board icon) */
+  #ctx { position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: 9; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; max-width: calc(100vw - 120px); }
+  #ctx .pill { gap: 12px; flex-wrap: wrap; justify-content: center; }
+  #bgpop { position: fixed; top: 56px; left: 84px; z-index: 10; flex-direction: column; align-items: flex-start; gap: 8px; }
+  .lab { color: var(--muted); font-size: 12px; }
+  .seg .ic { width: 30px; height: 30px; padding: 3px; display: grid; place-items: center; }
+  .seg .ic svg { width: 20px; height: 20px; }
+  .seg .sw.none { background: var(--surface); border-style: dashed; }
+  #search input { width: 150px; font: inherit; color: var(--ink); background: transparent; border: 0; outline: none; }
+  #qcount { min-width: 1ch; }
+  body.searching .card:not(.found) { opacity: .25; }
+  .card.found { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .card.attach-target { outline: 2px dashed var(--accent); outline-offset: 3px; }
+  .seg { display: flex; gap: 2px; }
+  .seg .btn.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  .seg .sw { width: 22px; height: 22px; padding: 0; border-radius: 50%; background: var(--c); }
+  .btn:disabled { opacity: .4; cursor: default; }
+  .btn:disabled:hover { border-color: var(--line); color: var(--ink); }
+  #side { display: flex; gap: 8px; }
+
+  /* drawings: transparent so overlapping strokes do not hide each other; only the ink itself is clickable */
+  .card.sketch { width: 240px; padding: 6px; background: none; border-color: transparent; box-shadow: none; pointer-events: none; }
+  .card.sketch:hover { border-color: var(--line); box-shadow: none; }
+  .sketch .grip { pointer-events: auto; }
+  .sketch svg { display: block; width: 100%; height: auto; }
+  .sketch .ink, #draft path { fill: none; stroke: var(--ink); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+  .sketch .hit { fill: none; stroke: transparent; stroke-width: 14; stroke-linecap: round; stroke-linejoin: round; pointer-events: stroke; cursor: grab; }
+  #draft { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; z-index: 20; }
+  body[data-tool=line], body[data-tool=line] .card, body[data-tool=draw], body[data-tool=draw] .card { cursor: crosshair; }
+  .tool.on { background: var(--accent-soft); color: var(--accent); }
+  #drawbar { position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: 9; }
+
+  /* comments */
+  .comment { width: 240px; padding: 10px 12px; }
+  .comment .head { font-size: 12px; font-weight: 600; color: var(--muted); padding-bottom: 6px; }
+  .msgs { display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow: auto; padding-bottom: 6px; }
+  .msgs:empty { display: none; }
+  .msg .by { font-size: 12px; color: var(--muted); }
+  .msg .by b { color: var(--ink); font-weight: 600; }
+  .msg .body { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+  .reply { width: 100%; font: inherit; color: inherit; background: var(--surface-2); border: 1px solid var(--line); border-radius: calc(var(--r) - 2px); padding: 4px 8px; outline: none; user-select: text; }
+  .reply:focus { border-color: var(--accent); }
+
+  /* colour picker: hue wheel (angle = hue, radius = saturation), brightness slider, hex and numeric fields */
+  .seg .sw.custom { background: conic-gradient(#f44, #fd4, #4d6, #4cf, #55f, #e4e, #f44); }
+  #picker { position: fixed; top: 150px; left: 50%; transform: translateX(-50%); z-index: 12; width: 340px; padding: 12px; display: grid; gap: 12px;
+            background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow-lift); }
+  #picker[hidden] { display: none; }
+  #picker .ph { font-weight: 600; }
+  #pmain { display: flex; gap: 18px; justify-content: center; align-items: center; }
+  #wheel { width: 240px; height: 240px; border-radius: 50%; cursor: crosshair; touch-action: none; }
+  #vbar { position: relative; width: 26px; height: 240px; border-radius: 6px; cursor: ns-resize; touch-action: none; }
+  #vthumb { position: absolute; left: -5px; right: -5px; height: 10px; margin-top: -5px; border: 2px solid #fff; border-radius: 6px; box-shadow: 0 0 0 1px rgb(0 0 0 / .55); pointer-events: none; }
+  .prow { display: flex; gap: 8px; align-items: center; }
+  #pprev { width: 44px; height: 34px; flex: none; border-radius: 8px; border: 1px solid var(--line); }
+  .prow .btn { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; }
+  .prow .btn svg { width: 18px; height: 18px; }
+  #picker input { font: inherit; color: var(--ink); background: var(--surface-2); border: 1px solid var(--line); border-radius: calc(var(--r) - 2px); padding: 5px 6px; outline: none; user-select: text; }
+  #picker input:focus { border-color: var(--accent); }
+  #phex { flex: 1; min-width: 0; text-align: center; }
+  #pnum { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  #pnum label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+  #pnum input { width: 100%; min-width: 0; text-align: center; }
+  #precent { display: flex; gap: 6px; flex-wrap: wrap; }
+  #precent:empty { display: none; }
+  #precent .sw { width: 22px; height: 22px; padding: 0; border-radius: 50%; }
+
+  /* export menu (after Milanote's: layout, linear document, images) and the import dialog */
+  #expop { position: fixed; top: 56px; right: 12px; z-index: 10; flex-direction: column; align-items: stretch; gap: 2px; width: 330px; padding: 10px; }
+  #expop[hidden] { display: none; }
+  #expop h4 { margin: 8px 6px 2px; font-size: 12px; color: var(--muted); font-weight: 600; }
+  #expop h4:first-child { margin-top: 2px; }
+  #expop .item { all: unset; display: flex; align-items: center; gap: 8px; padding: 6px; border-radius: calc(var(--r) - 2px); cursor: pointer; color: var(--ink); }
+  #expop .item:hover { background: var(--accent-soft); }
+  #expop .item:focus-visible { outline: 2px solid var(--accent); }
+  #expop button.item[disabled] { opacity: .45; cursor: default; pointer-events: none; }
+  #exmsg { min-height: 1.45em; padding: 4px 6px 0; }
+  #impdlg { position: fixed; top: 110px; left: 50%; transform: translateX(-50%); z-index: 12; width: 400px; max-width: calc(100vw - 24px); padding: 14px; display: grid; gap: 12px;
+            background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow-lift); }
+  #impdlg[hidden] { display: none; }
+  #impdlg .ph { font-weight: 600; }
+  #impdlg .prow .btn { width: auto; height: auto; padding: 5px 16px; }
+  #impdrop { display: grid; gap: 4px; justify-items: center; text-align: center; padding: 22px 14px; border: 1px dashed var(--line); border-radius: var(--r); cursor: pointer; }
+  #impdrop:hover, #impdrop.over { border-color: var(--accent); background: var(--accent-soft); }
+  #impinfo { white-space: pre-line; max-height: 40vh; overflow: auto; color: var(--ink); }
+
+  /* trash */
+  #trash { display: none; position: fixed; left: 84px; bottom: 12px; z-index: 10; width: 280px; max-height: 50vh; overflow: auto; padding: 8px 10px;
+           background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow-lift); }
+  #trash h3 { margin: 4px 0 6px; font-size: 13px; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 0; }
+  .row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .empty { color: var(--muted); padding: 6px 0; }
+  .btn { display: inline-block; font: inherit; font-size: 13px; color: var(--ink); text-decoration: none; background: var(--surface); border: 1px solid var(--line);
+         border-radius: calc(var(--r) - 2px); padding: 2px 10px; cursor: pointer; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  @media (max-width: 640px) {
+    #tools { top: auto; bottom: 12px; left: 50%; transform: translateX(-50%); flex-direction: row; max-width: calc(100vw - 24px); }
+    .sep { width: 1px; height: auto; margin: 8px 4px; }
+    #top { left: 12px; } #trash { left: 12px; bottom: 88px; } #zoom { bottom: 88px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<nav id="tools" aria-label="Add to board">
+  <button class="tool" id="note"><svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M8.5 9h7M8.5 13h7M8.5 16h4"/></svg>Note</button>
+  <button class="tool" id="todo"><svg viewBox="0 0 24 24"><path d="M4.5 7l1.5 1.5L9 5.5M4.5 16l1.5 1.5L9 14.5"/><path d="M12.5 7h7M12.5 16h7"/></svg>To-do</button>
+  <button class="tool" id="table"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M4 10h16M4 14.5h16M10 5v14"/></svg>Table</button>
+  <button class="tool" id="link"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>Link</button>
+  <button class="tool" id="image"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M4 16l4.5-4 3.5 3 3-2.5 5 4"/></svg>Image</button>
+  <button class="tool" id="line"><svg viewBox="0 0 24 24"><path d="M5 19L19 5"/><path d="M11 5h8v8"/></svg>Line</button>
+  <button class="tool" id="draw"><svg viewBox="0 0 24 24"><path d="M4 20l1-4L16 5l3 3L8 19z"/><path d="M14 7l3 3"/></svg>Draw</button>
+  <button class="tool" id="comment"><svg viewBox="0 0 24 24"><path d="M5 6h14v10h-8l-4 3v-3H5z"/></svg>Comment</button>
+  <button class="tool" id="col"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="16" rx="1.5"/><rect x="13" y="4" width="7" height="10" rx="1.5"/></svg>Column</button>
+  <button class="tool" id="brd"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Board</button>
+  <div class="sep"></div>
+  <button class="tool" id="trashBtn" title="Drag cards here to delete them. Or select cards and press Delete."><svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12M10 11v5M14 11v5"/></svg>Trash</button>
+</nav>
+<input type="file" id="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
+<div id="top">
+  <div id="side">
+    <div class="pill" id="crumbs"></div>
+    <div class="pill" id="history"><button class="btn" id="undo" disabled title="Undo (Ctrl+Z)">Undo</button><button class="btn" id="redo" disabled title="Redo (Ctrl+Shift+Z)">Redo</button></div>
+    <div class="pill" id="search"><input id="q" name="q" placeholder="Search this board  ( / )" autocomplete="off" aria-label="Search this board"><span id="qcount" class="lab"></span></div>
+    <div class="pill"><button class="btn" id="bgBtn" title="Board background">Background</button></div>
+    <div class="pill"><button class="btn" id="expBtn" title="Export this board">Export</button><button class="btn" id="impBtn" title="Import a board">Import</button></div>
+  </div>
+  <div class="pill" id="st" data-state="wait">Connecting</div>
+</div>
+<div class="pill" id="bgpop" hidden>
+  <span class="lab">Pattern</span>
+  <div class="seg" data-prop="bg"><button class="btn" data-val="dots">Dots</button><button class="btn" data-val="grid">Grid</button><button class="btn" data-val="plain">Plain</button></div>
+  <span class="lab">Tint</span>
+  <div class="seg" data-prop="bgTint"></div>
+</div>
+<div class="pill" id="expop" hidden>
+  <h4>Export the current board layout</h4>
+  <button class="item" data-x="pdf">PDF standard (small file size)</button>
+  <button class="item" data-x="pdfhq">PDF high quality (large file size)</button>
+  <button class="item" data-x="png">PNG image</button>
+  <h4>Convert to a linear document</h4>
+  <label class="item"><input type="checkbox" id="exSub" name="sub"> Include sub-boards</label>
+  <button class="item" data-x="docx">Word document</button>
+  <button class="item" data-x="md">Markdown</button>
+  <button class="item" data-x="txt">Plain text</button>
+  <h4>Download all images and files</h4>
+  <button class="item" data-x="zip" id="exZip">Generate ZIP</button>
+  <h4>Move this board to another boardsync</h4>
+  <button class="item" data-x="json">Board file (keeps layout, colours, boards and images)</button>
+  <div id="exmsg" class="lab"></div>
+</div>
+<div id="impdlg" hidden role="dialog" aria-label="Import">
+  <div class="ph">Import</div>
+  <label id="impdrop">
+    <b>Choose files</b> or drop them here
+    <span class="lab">A board file from boardsync, or a Milanote export: Markdown or plain text, plus the ZIP of images</span>
+    <input type="file" id="impfile" name="files" multiple accept=".json,.md,.markdown,.txt,.zip" hidden>
+  </label>
+  <div id="impinfo" class="lab"></div>
+  <label id="impopt" class="lab" hidden><input type="checkbox" id="impsub" name="sub" checked> Treat extra top-level headings as sub-boards</label>
+  <div class="prow"><button class="btn" id="impgo" disabled>Import</button><button class="btn" id="impno">Close</button></div>
+</div>
+<div id="picker" hidden role="dialog" aria-label="Colour picker">
+  <div class="ph">Colour</div>
+  <div id="pmain"><canvas id="wheel" width="240" height="240"></canvas><div id="vbar"><div id="vthumb"></div></div></div>
+  <div class="prow">
+    <div id="pprev"></div>
+    <button class="btn" id="pok" aria-label="Apply colour" title="Apply (Enter)"><svg viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></svg></button>
+    <button class="btn" id="pno" aria-label="Cancel" title="Cancel (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <input id="phex" name="hex" maxlength="7" spellcheck="false" autocomplete="off" aria-label="Hex colour">
+  </div>
+  <div id="pnum"></div>
+  <div id="precent"></div>
+</div>
+<div id="ctx">
+<div class="pill" id="linebar" hidden>
+  <div class="seg" data-prop="arrow"><button class="btn" data-val="none">Plain</button><button class="btn" data-val="end">Arrow</button><button class="btn" data-val="both">Both ends</button></div>
+  <div class="seg" data-prop="dash"><button class="btn" data-val="solid">Solid</button><button class="btn" data-val="dashed">Dashed</button><button class="btn" data-val="dotted">Dotted</button></div>
+  <div class="seg" data-prop="weight"><button class="btn" data-val="2">Thin</button><button class="btn" data-val="4">Medium</button><button class="btn" data-val="6">Thick</button></div>
+  <div class="seg" data-prop="color">
+    <button class="btn sw" data-val="ink" style="--c: var(--ink)" aria-label="Default colour"></button><button class="btn sw" data-val="blue" style="--c: var(--accent)" aria-label="Blue"></button><button class="btn sw" data-val="red" style="--c: var(--bad)" aria-label="Red"></button><button class="btn sw" data-val="green" style="--c: var(--ok)" aria-label="Green"></button><button class="btn sw" data-val="amber" style="--c: #d99a00" aria-label="Amber"></button>
+  </div>
+</div>
+<div class="pill" id="colorbar" hidden><span class="lab">Colour</span><div class="seg" data-prop="color"></div></div>
+<div class="pill" id="iconbar" hidden><span class="lab">Icon</span><div class="seg" data-prop="icon"></div></div>
+<div class="pill" id="fmt" hidden>
+  <button class="btn" data-c="bold" title="Bold (Ctrl+B)"><b>B</b></button>
+  <button class="btn" data-c="italic" title="Italic (Ctrl+I)"><i>I</i></button>
+  <button class="btn" data-c="underline" title="Underline (Ctrl+U)"><u>U</u></button>
+  <button class="btn" data-c="strikeThrough" title="Strikethrough"><s>S</s></button>
+  <button class="btn" data-c="insertUnorderedList" title="Bulleted list">&bull; List</button>
+  <button class="btn" data-c="insertOrderedList" title="Numbered list">1. List</button>
+  <button class="btn" data-c="heading" title="Heading">Heading</button>
+</div>
+</div>
+<div id="canvas"></div>
+<div id="hint">Add a note, to-do, link, image, column or board from the toolbar.<br>Drag empty space to select cards. Scroll to pan, Ctrl+scroll to zoom. Double-click a card to edit it.<br>Ctrl+C, Ctrl+V and Ctrl+D copy, paste and duplicate. Press / to search.</div>
+<div id="marquee" hidden></div>
+<div class="pill" id="drawbar" hidden>Drawing: every stroke is saved as you lift the pen. Press Esc to stop.</div>
+<div class="pill" id="zoom"><button class="btn" id="zfit" title="Fit all cards on screen (Shift+1)">Fit</button><button class="btn" id="zout" aria-label="Zoom out">-</button><button class="btn" id="zreset" title="Reset zoom">100%</button><button class="btn" id="zin" aria-label="Zoom in">+</button></div>
+<div id="trash"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const sid = Math.random().toString(36).slice(2, 8);
+let HOME, B = "", joined = null, n = 0, els = {}; // HOME = this user's root board, from app-init
+// ponytail: identity is a self-declared id (?u=name, else a random one kept in localStorage); real login would replace this
+const uid = new URLSearchParams(location.search).get("u") ?? (localStorage.uid ??= "u" + Math.random().toString(36).slice(2, 8));
+const s = io({ transports: ["websocket"], auth: { userId: uid } });
+const send = (a) => new Promise((r) => s.emit("action", { ...a, channels: [B + "-LIVE"] }, r)); // server ignores channels and derives rooms
+const $ = (id) => document.getElementById(id);
+const score = (d) => els[d.id].location.position.score;
+const status = (state, text) => { $("st").dataset.state = state; $("st").textContent = text; };
+const flash = (msg) => { status("bad", msg); setTimeout(() => (s.connected ? status("live", "Live as " + uid) : status("wait", "Offline")), 3500); };
+const rid = () => Math.random().toString(36).slice(2, 8);
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const capture = (el, pointerId) => { try { el.setPointerCapture(pointerId); } catch {} }; // reparenting a card releases capture; a stale id throws
+
+const KIND = { CARD: "note", COLUMN: "column", BOARD: "board", TASK_LIST: "todo", LINK: "link", IMAGE: "image", LINE: "line", SKETCH: "sketch", COMMENT_THREAD: "comment", TABLE: "sheet" };
+const LABEL = { CARD: "Note", COLUMN: "Column", BOARD: "Board", TASK_LIST: "To-do", LINK: "Link", IMAGE: "Image", LINE: "Line", SKETCH: "Drawing", COMMENT_THREAD: "Comment", TABLE: "Table" };
+const ASPECT = new Set(["IMAGE", "SKETCH"]); // resized by scaling, so their height follows their width
+const NS = "http://www.w3.org/2000/svg";
+// the content field shown in a card's editable text (images have none)
+const FIELD = { CARD: "textContent", COLUMN: "title", BOARD: "title", TASK_LIST: "title", LINK: "url" };
+const DEFAULT = { COLUMN: "Column", BOARD: "Untitled board", TASK_LIST: "To-do list", LINK: "Paste a link" };
+// board tile icons: simple outline glyphs, one family, drawn in the tile's foreground colour
+const ICONS = Object.fromEntries(Object.entries({
+  grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+  home: '<path d="M4 11l8-7 8 7"/><path d="M6 10v9h12v-9"/><path d="M10 19v-5h4v5"/>',
+  sparkle: '<path d="M11 3l1.8 5.2L18 10l-5.2 1.8L11 17l-1.8-5.2L4 10l5.2-1.8z"/><path d="M18 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
+  plane: '<path d="M21 4L3 11l7 2 2 7z"/><path d="M10 13l11-9"/>',
+  gamepad: '<rect x="3" y="8" width="18" height="9" rx="4.5"/><path d="M8 11v3M6.5 12.5h3"/><circle cx="15" cy="12" r=".8"/><circle cx="17.5" cy="13.5" r=".8"/>',
+  heart: '<path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10z"/>',
+  camera: '<path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13.5" r="3.5"/>',
+  music: '<path d="M9 18V6l10-2v12"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="16" r="2"/>',
+  cart: '<path d="M3 4h2l2 11h11l2-8H6"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/>',
+  calendar: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',
+  bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.5.4.8 1 .8 1.6V16h5.4v-.5c0-.6.3-1.2.8-1.6A6 6 0 0 0 12 3z"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+}).map(([k, v]) => [k, `<svg viewBox="0 0 24 24">${v}</svg>`]));
+const ICON_NAMES = Object.keys(ICONS);
+const TINTS = ["sage", "teal", "sand", "orange", "slate", "rose", "lilac"];
+// A colour is either a palette name or a custom #rrggbb. Custom values come from other clients and end up in CSS, so only this exact shape is accepted.
+const HEX = /^#[0-9a-f]{6}$/i;
+const colourKey = (v) => (HEX.test(v ?? "") ? "custom" : v ?? ""); // what a swatch row marks as "on" for a stored value
+const COLOURABLE = new Set(["CARD", "TASK_LIST", "LINK", "COLUMN", "COMMENT_THREAD", "BOARD", "TABLE"]); // cards that take a colour
+let counts = {}; // board id -> { boards, cards }: computed by the server for each board tile
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+const countText = ({ boards, cards }) => [boards && plural(boards, "board"), (cards || !boards) && plural(cards, "card")].filter(Boolean).join(", ");
+const HTML = {
+  CARD: '<div class="text"></div>',
+  COLUMN: '<div class="title"></div><div class="kids"></div>',
+  BOARD: '<div class="tile"></div><div class="title"></div><div class="sub"></div>',
+  TASK_LIST: '<div class="title"></div><div class="tasks"></div><button class="btn add-task">+ Add task</button><div class="meta"></div>',
+  LINK: '<img class="thumb" draggable="false" alt="" hidden><div class="domain"></div><div class="ptitle"></div><div class="pdesc"></div><div class="title"></div><a class="btn go" target="_blank" rel="noopener noreferrer" hidden>Open</a>',
+  IMAGE: '<img draggable="false" alt="">',
+  TABLE: '<div class="tbl"><table><tbody></tbody></table></div><div class="tbl-tools"><button class="btn" data-t="row">+ Row</button><button class="btn" data-t="col">+ Column</button><button class="btn" data-t="drow">- Row</button><button class="btn" data-t="dcol">- Column</button></div>',
+  LINE: '<svg><path class="hit"/><path class="vis"/><path class="head"/><circle class="h h1" r="6"/><circle class="h h2" r="6"/></svg>',
+  SKETCH: '<svg><path class="hit"/><path class="ink"/></svg>',
+  COMMENT_THREAD: '<div class="head">Comment</div><div class="msgs"></div><input class="reply" name="reply" maxlength="2000" placeholder="Write a comment" autocomplete="off">',
+};
+// the one element inside a card that holds its editable text (none for images)
+const editor = (d) => d.querySelector(":scope > .text, :scope > .title");
+const editing = (d) => editor(d)?.contentEditable === "true";
+const preview = (e) => String(e.content[FIELD[e.elementType]] || e.content.name || e.content.messages?.[0]?.text || { LINE: "arrow", SKETCH: "freehand" }[e.elementType] || DEFAULT[e.elementType] || "(empty)");
+const topCards = () => [...$("canvas").children].filter((c) => c.classList.contains("card")); // the canvas also holds the live drawing layer
+
+// only http(s) links are ever made clickable: a pasted javascript: URL must not become a live href
+function safeUrl(v) {
+  try { const u = new URL(/^[a-z][a-z0-9+.-]*:/i.test(v) ? v : "https://" + v); return /^https?:$/.test(u.protocol) ? u : null; } catch { return null; }
+}
+
+// Rich note text is stored as a small subset of HTML next to the plain text. It also arrives from other users, pastes and imported files,
+// so it is rebuilt through an allow-list every time it is saved, pasted or shown: only these tags, no attributes except a link's href
+// (http/https only), and scripts, styles, frames and the like are dropped with their content.
+const RICH = new Set(["B", "STRONG", "I", "EM", "U", "S", "STRIKE", "UL", "OL", "LI", "BR", "P", "DIV", "H1", "H2", "H3", "A"]);
+const DROP = new Set(["SCRIPT", "STYLE", "IFRAME", "OBJECT", "EMBED", "TEMPLATE", "NOSCRIPT", "SVG", "MATH", "LINK", "META", "TITLE", "HEAD", "FORM", "INPUT", "TEXTAREA", "BUTTON", "AUDIO", "VIDEO", "CANVAS"]);
+function cleanNode(node) {
+  for (const c of [...node.childNodes]) {
+    if (c.nodeType === 3) continue;
+    const tag = c.tagName?.toUpperCase();
+    if (c.nodeType !== 1 || DROP.has(tag)) { c.remove(); continue; }
+    cleanNode(c);
+    if (!RICH.has(tag)) { c.replaceWith(...c.childNodes); continue; } // an unknown tag: keep its text, lose the tag
+    for (const a of [...c.attributes]) if (!(tag === "A" && a.name === "href")) c.removeAttribute(a.name);
+    if (tag === "A") {
+      const u = safeUrl(c.getAttribute("href") ?? "");
+      if (!u) { c.replaceWith(...c.childNodes); continue; }
+      c.setAttribute("href", u.href); c.setAttribute("target", "_blank"); c.setAttribute("rel", "noopener noreferrer");
+    }
+  }
+}
+function cleanHtml(html) {
+  const doc = new DOMParser().parseFromString("<body>" + String(html).slice(0, 60000), "text/html");
+  cleanNode(doc.body);
+  return doc.body.innerHTML;
+}
+const hasFormatting = (html) => /<(b|strong|i|em|u|s|strike|ul|ol|li|h[1-3]|a)[\s>]/i.test(html); // plain notes stay plain: no html is stored for them
+
+// --- view: pan and zoom ------------------------------------------------------------------------
+// screen = board * z + (x, y). Cards are positioned in board coordinates inside #canvas, which carries the transform.
+let view = { x: 0, y: 0, z: 1 };
+const toBoard = (cx, cy) => ({ x: (cx - view.x) / view.z, y: (cy - view.y) / view.z });
+function applyView(save = true) {
+  $("canvas").style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.z})`;
+  document.body.style.backgroundSize = `${24 * view.z}px ${24 * view.z}px`;
+  document.body.style.backgroundPosition = `${view.x}px ${view.y}px`;
+  $("zreset").textContent = Math.round(view.z * 100) + "%";
+  if (save) saveViewSoon();
+}
+// the view is remembered per board and per user, so reopening a board puts you back where you were
+let viewTimer;
+const viewKey = (id = B) => `view:${uid}:${id}`;
+function saveViewSoon() {
+  const key = viewKey(), snap = { ...view }; // capture now: by the time the timer fires you may be on another board
+  clearTimeout(viewTimer);
+  viewTimer = setTimeout(() => { try { localStorage[key] = JSON.stringify(snap); } catch {} }, 300);
+}
+function loadView(id) {
+  try { const v = JSON.parse(localStorage[viewKey(id)]); if ([v.x, v.y, v.z].every(Number.isFinite)) return { x: v.x, y: v.y, z: clamp(v.z, 0.25, 2) }; } catch {}
+  return { x: 0, y: 0, z: 1 };
+}
+// fit every card on the board into the visible area (clear of the toolbar and top bar)
+function fit() {
+  const cards = topCards();
+  if (!cards.length) return resetView();
+  let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+  for (const c of cards) {
+    const k = (c.classList.contains("line") ? c.querySelector("svg") : c).getBoundingClientRect(), a = toBoard(k.left, k.top), z = toBoard(k.right, k.bottom);
+    l = Math.min(l, a.x); t = Math.min(t, a.y); r = Math.max(r, z.x); b = Math.max(b, z.y);
+  }
+  const pad = 40, left = 96, top = 70, w = innerWidth - left - 24, h = innerHeight - top - 24;
+  const z = clamp(Math.min(w / (r - l + 2 * pad), h / (b - t + 2 * pad)), 0.25, 1.5);
+  view = { z, x: left + (w - (r - l) * z) / 2 - l * z, y: top + (h - (b - t) * z) / 2 - t * z };
+  applyView();
+}
+$("zfit").onclick = fit;
+function zoomAt(factor, cx = innerWidth / 2, cy = innerHeight / 2) {
+  const z = clamp(view.z * factor, 0.25, 2);
+  view.x = cx - (cx - view.x) * (z / view.z); // keep the board point under the cursor where it is
+  view.y = cy - (cy - view.y) * (z / view.z);
+  view.z = z; applyView();
+}
+const resetView = () => { view = { x: 0, y: 0, z: 1 }; applyView(); };
+$("zin").onclick = () => zoomAt(1.2);
+$("zout").onclick = () => zoomAt(1 / 1.2);
+$("zreset").onclick = resetView;
+addEventListener("wheel", (e) => {
+  const msgs = e.target.closest?.(".msgs");
+  if (e.target.closest?.("#trash") || (msgs && msgs.scrollHeight > msgs.clientHeight)) return; // let the Trash list and long comment threads scroll
+  e.preventDefault();
+  if (e.ctrlKey || e.metaKey) zoomAt(Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY); // trackpad pinch also arrives as ctrl+wheel
+  else { view.x -= e.deltaX; view.y -= e.deltaY; applyView(); }
+}, { passive: false });
+
+// --- selection ----------------------------------------------------------------------------------
+let sel = new Set();
+function setSel(ids) {
+  sel = new Set(ids);
+  document.querySelectorAll(".card").forEach((c) => c.classList.toggle("selected", sel.has(c.id)));
+  syncBars();
+}
+// a selected column already carries its cards: drop any selected id whose parent is also selected
+const tops = (ids) => ids.filter((id) => !ids.includes(els[id]?.location.parentId));
+
+function mk(el) {
+  const d = Object.assign(document.createElement("div"), { id: el.id, className: "card " + KIND[el.elementType], tabIndex: 0 });
+  d.innerHTML = HTML[el.elementType] + (["BOARD", "LINE"].includes(el.elementType) ? "" : '<div class="grip e"></div><div class="grip s"></div><div class="grip se"></div>');
+  if (el.elementType === "BOARD") d.title = "Double-click to open, F2 to rename";
+  wire(d);
+  return d;
+}
+
+// a stroke as an svg path; a single point still draws a dot (round caps)
+const pathD = (pts) => pts.map(([x, y], i) => (i ? "L" : "M") + x + " " + y).join("") + (pts.length === 1 ? `L${pts[0][0]} ${pts[0][1]}` : "");
+
+// line style: only known values are ever used (they come from other clients too, and end up in CSS)
+const LINE_DEFAULT = { arrow: "end", dash: "solid", weight: 2, color: "ink" };
+const LINE_OK = { arrow: ["none", "end", "both"], dash: ["solid", "dashed", "dotted"], weight: [2, 4, 6], color: ["ink", "blue", "red", "green", "amber"] };
+const pick = (v, key) => (LINE_OK[key].includes(v) ? v : LINE_DEFAULT[key]);
+const lineProp = (c, k) => k === "arrow" ? (c.arrow === false ? "none" : c.arrow === true ? "end" : pick(c.arrow, "arrow")) // older lines stored a boolean
+  : k === "weight" ? pick(Number(c.weight), "weight") : k === "color" && HEX.test(c.color ?? "") ? c.color : pick(c[k], k);
+let lineStyle = (() => { // new lines start with the style you used last
+  try { const s = JSON.parse(localStorage.lineStyle ?? "{}"); return Object.fromEntries(Object.keys(LINE_DEFAULT).map((k) => [k, k === "color" && HEX.test(s.color ?? "") ? s.color : pick(s[k], k)])); } catch { return { ...LINE_DEFAULT }; }
+})();
+
+// a line is stored relative to its position: (x1,y1) to (x2,y2). The svg is sized to the line's box so selection and the marquee can measure it.
+function renderLine(d, c) {
+  const { x1 = 0, y1 = 0, x2 = 0, y2 = 0 } = c, arrow = lineProp(c, "arrow"), dash = lineProp(c, "dash"), weight = lineProp(c, "weight"), pad = 10 + weight;
+  const colour = lineProp(c, "color");
+  d.dataset.color = colourKey(colour);
+  HEX.test(colour) ? d.style.setProperty("--stroke", colour) : d.style.removeProperty("--stroke");
+  const minx = Math.min(x1, x2) - pad, miny = Math.min(y1, y2) - pad, w = Math.abs(x2 - x1) + 2 * pad, h = Math.abs(y2 - y1) + 2 * pad;
+  const svg = d.querySelector("svg");
+  Object.assign(svg.style, { left: minx + "px", top: miny + "px", width: w + "px", height: h + "px" });
+  svg.style.setProperty("--w", weight);
+  svg.setAttribute("viewBox", `${minx} ${miny} ${w} ${h}`);
+  const L = 10 + 2 * weight, k = 0.45, shaft = `M${x1} ${y1}L${x2} ${y2}`;
+  const head = (x, y, a) => `M${x - L * Math.cos(a - k)} ${y - L * Math.sin(a - k)}L${x} ${y}L${x - L * Math.cos(a + k)} ${y - L * Math.sin(a + k)}`;
+  const a = Math.atan2(y2 - y1, x2 - x1);
+  svg.querySelector(".hit").setAttribute("d", shaft);
+  svg.querySelector(".hit").style.strokeWidth = Math.max(14, weight + 10);
+  svg.querySelector(".vis").setAttribute("d", shaft);
+  svg.querySelector(".vis").style.strokeDasharray = dash === "dashed" ? `${weight * 4} ${weight * 3}` : dash === "dotted" ? `0.1 ${weight * 2.5}` : "none"; // heads stay solid
+  svg.querySelector(".head").setAttribute("d", (arrow !== "none" ? head(x2, y2, a) : "") + (arrow === "both" ? head(x1, y1, a + Math.PI) : ""));
+  for (const [cls, x, y] of [["h1", x1, y1], ["h2", x2, y2]]) { const c = svg.querySelector("." + cls); c.setAttribute("cx", x); c.setAttribute("cy", y); }
+}
+
+// --- lines attached to cards: an attached end sits on the edge of its card and follows it ---
+const attached = (e) => e?.elementType === "LINE" && (e.content.from || e.content.to);
+const cardAt = (x, y, not = null) => document.elementsFromPoint(x, y).map((n) => n.closest(".card")).find((c) => c && !c.classList.contains("line") && c.id !== not)?.id ?? null;
+const markTarget = (id) => { document.querySelectorAll(".attach-target").forEach((c) => c.id !== id && c.classList.remove("attach-target")); if (id) $(id)?.classList.add("attach-target"); };
+function cardRect(id) {
+  const d = id && $(id);
+  if (!d || d.classList.contains("line")) return null; // a card that is not on screen (deleted, in the trash) detaches visually
+  const r = d.getBoundingClientRect(), a = toBoard(r.left, r.top), b = toBoard(r.right, r.bottom);
+  return { l: a.x, t: a.y, r: b.x, b: b.y };
+}
+function edgePoint(k, p) { // where a ray from the card's centre toward p leaves the card
+  const cx = (k.l + k.r) / 2, cy = (k.t + k.b) / 2, dx = p.x - cx, dy = p.y - cy;
+  if (!dx && !dy) return { x: cx, y: cy };
+  const t = Math.min(dx ? ((dx > 0 ? k.r : k.l) - cx) / dx : Infinity, dy ? ((dy > 0 ? k.b : k.t) - cy) / dy : Infinity, 1);
+  return { x: cx + dx * t, y: cy + dy * t };
+}
+function lineEnds(el, over = {}) { // the two ends in board coordinates; a missing card falls back to where the end was stored
+  const c = { ...el.content, ...over }, p = el.location.position, mid = (k) => ({ x: (k.l + k.r) / 2, y: (k.t + k.b) / 2 });
+  const a0 = { x: p.x + (c.x1 ?? 0), y: p.y + (c.y1 ?? 0) }, b0 = { x: p.x + (c.x2 ?? 0), y: p.y + (c.y2 ?? 0) };
+  const ka = cardRect(c.from), kb = cardRect(c.to);
+  return { a: ka ? edgePoint(ka, kb ? mid(kb) : b0) : a0, b: kb ? edgePoint(kb, ka ? mid(ka) : a0) : b0 };
+}
+function layoutLine(el, over) {
+  const d = $(el.id);
+  if (!d) return;
+  const { a, b } = lineEnds(el, over), p = el.location.position;
+  renderLine(d, { ...el.content, ...over, x1: a.x - p.x, y1: a.y - p.y, x2: b.x - p.x, y2: b.y - p.y });
+}
+const relayout = (cardId) => Object.values(els).forEach((e) => attached(e) && (!cardId || e.content.from === cardId || e.content.to === cardId) && layoutLine(e));
+
+// The option bars follow the selection: line style for lines, colour for anything colourable, icon for boards. Each marks the value
+// that every selected card shares.
+const markBar = (bar, items, val) => {
+  for (const seg of bar.querySelectorAll(".seg")) {
+    const vals = new Set(items.map((e) => String(val(e, seg.dataset.prop))));
+    seg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", vals.size === 1 && vals.has(b.dataset.val)));
+  }
+};
+function syncBars() {
+  const picked = [...sel].map((id) => els[id]).filter(Boolean);
+  const lines = picked.filter((e) => e.elementType === "LINE"), tintable = picked.filter((e) => COLOURABLE.has(e.elementType)), boards = picked.filter((e) => e.elementType === "BOARD");
+  $("linebar").hidden = !lines.length; $("colorbar").hidden = !tintable.length; $("iconbar").hidden = !boards.length;
+  markBar($("linebar"), lines, (e, p) => (p === "color" ? colourKey(lineProp(e.content, p)) : lineProp(e.content, p)));
+  markBar($("colorbar"), tintable, (e) => colourKey(e.content.color));
+  showCustom($("colorbar"), tintable.map((e) => e.content.color));
+  showCustom($("linebar"), lines.map((e) => lineProp(e.content, "color")));
+  markBar($("iconbar"), boards, (e) => (ICON_NAMES.includes(e.content.icon) ? e.content.icon : "grid"));
+}
+// swatches and icon buttons are generated from the palette so they cannot drift from what render() accepts
+// the rainbow button opens the colour picker; once a custom colour is in use it shows that colour instead
+const CUSTOM = '<button class="btn sw custom" data-val="custom" aria-label="Custom colour" title="Custom colour"></button>';
+const showCustom = (bar, values) => {
+  const used = [...new Set(values.filter((v) => HEX.test(v ?? "")))], b = bar.querySelector(".sw.custom");
+  if (b) b.style.background = used.length === 1 ? used[0] : "";
+};
+const swatches = () => `<button class="btn sw none" data-val="" aria-label="No colour" title="No colour"></button>` + TINTS.map((t) => `<button class="btn sw" data-val="${t}" style="--c: var(--tile-${t})" aria-label="${t}" title="${t}"></button>`).join("") + CUSTOM;
+$("colorbar").querySelector(".seg").innerHTML = swatches();
+$("bgpop").querySelector('[data-prop=bgTint]').innerHTML = swatches();
+$("linebar").querySelector("[data-prop=color]").insertAdjacentHTML("beforeend", CUSTOM);
+$("iconbar").querySelector(".seg").innerHTML = ICON_NAMES.map((n) => `<button class="btn ic" data-val="${n}" aria-label="${n}" title="${n}">${ICONS[n]}</button>`).join("");
+const applyTo = (types, changes) => updateMany([...sel].filter((id) => types.has(els[id]?.elementType)).map((id) => ({ id, changes }))); // one action, one undo step
+const firstHex = (values) => values.find((v) => HEX.test(v ?? ""));
+// the formatting bar shows while a note's text is being edited. Its buttons must not take focus from the text, so mousedown is cancelled.
+$("fmt").onmousedown = (e) => e.preventDefault();
+$("fmt").onclick = (e) => {
+  const b = e.target.closest("button[data-c]");
+  if (!b) return;
+  if (b.dataset.c === "heading") document.execCommand("formatBlock", false, document.queryCommandValue("formatBlock").toLowerCase() === "h3" ? "div" : "h3");
+  else document.execCommand(b.dataset.c);
+};
+addEventListener("focusin", (e) => { $("fmt").hidden = !e.target.matches?.(".note .text[contenteditable=true]"); });
+addEventListener("focusout", (e) => { if (e.target.matches?.(".note .text")) $("fmt").hidden = true; });
+$("colorbar").onclick = (e) => {
+  const b = e.target.closest("button[data-val]");
+  if (!b) return;
+  if (b.dataset.val === "custom") return openPicker(firstHex([...sel].map((id) => els[id]?.content.color)), (hex) => applyTo(COLOURABLE, { color: hex }));
+  applyTo(COLOURABLE, { color: b.dataset.val || null });
+};
+$("iconbar").onclick = (e) => { const b = e.target.closest("button[data-val]"); if (b) applyTo(new Set(["BOARD"]), { icon: b.dataset.val }); };
+
+// --- colour picker ----------------------------------------------------------------------------------
+const hsv2rgb = (h, s, v) => { const f = (n) => { const k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); }; return [f(5), f(3), f(1)].map((x) => Math.round(x * 255)); };
+const rgb2hsv = (r, g, b) => {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), d = mx - Math.min(r, g, b);
+  const h = !d ? 0 : mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, mx ? d / mx : 0, mx];
+};
+const toHex = (rgb) => "#" + rgb.map((x) => x.toString(16).padStart(2, "0")).join("");
+const fromHex = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+// the text colour that stays readable on a custom background (WCAG relative luminance)
+const fgFor = (hex) => {
+  const [r, g, b] = fromHex(hex).map((x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.179 ? "#1b2027" : "#ffffff";
+};
+// a card's colour: a palette name uses the stylesheet's palette; a custom #rrggbb sets the same variables inline
+function applyTint(d, color, isBoard) {
+  const s = d.style, own = ["--tint", "--tile", "--fg"];
+  if (TINTS.includes(color)) { d.dataset.tint = color; own.forEach((k) => s.removeProperty(k)); s.color = ""; }
+  else if (HEX.test(color ?? "")) {
+    d.dataset.tint = "custom";
+    s.setProperty("--tint", color); s.setProperty("--tile", color); s.setProperty("--fg", fgFor(color));
+    s.color = isBoard ? "" : fgFor(color); // a tile's icon uses --fg; a note's own text needs a colour that reads on it
+  } else { delete d.dataset.tint; own.forEach((k) => s.removeProperty(k)); s.color = ""; }
+}
+
+const P = { h: 0, s: 0, v: 1, done: null }; // the colour being picked (hue 0-360, saturation and value 0-1) and who to tell when it is applied
+const wheel = $("wheel"), wctx = wheel.getContext("2d");
+function drawWheel() { // hue runs counter-clockwise from red on the left; the centre is white and the brightness slider scales everything
+  const n = wheel.width, r = n / 2, img = wctx.createImageData(n, n);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const dx = x + 0.5 - r, dy = y + 0.5 - r, d = Math.hypot(dx, dy);
+    if (d > r) continue;
+    const [R, G, B] = hsv2rgb((((Math.PI - Math.atan2(dy, dx)) / (2 * Math.PI)) * 360 + 360) % 360, d / r, P.v);
+    img.data.set([R, G, B, Math.min(255, (r - d) * 255 + 128)], (y * n + x) * 4); // a one pixel soft edge
+  }
+  wctx.putImageData(img, 0, 0);
+  const a = Math.PI - (P.h * Math.PI) / 180, mx = r + Math.cos(a) * P.s * r, my = r + Math.sin(a) * P.s * r;
+  for (const [w, c, rad] of [[3, "rgba(0,0,0,.55)", 7.5], [2, "#fff", 7]]) { wctx.lineWidth = w; wctx.strokeStyle = c; wctx.beginPath(); wctx.arc(mx, my, rad, 0, 7); wctx.stroke(); }
+}
+function syncPicker(skip) { // redraw everything from P; `skip` is the field being typed in, which must not be overwritten
+  const rgb = hsv2rgb(P.h, P.s, P.v), hex = toHex(rgb);
+  drawWheel();
+  $("vbar").style.background = `linear-gradient(${toHex(hsv2rgb(P.h, P.s, 1))}, #000)`;
+  $("vthumb").style.top = (1 - P.v) * 100 + "%";
+  $("pprev").style.background = hex;
+  if (skip !== "hex") $("phex").value = hex;
+  const vals = { r: rgb[0], g: rgb[1], b: rgb[2], h: Math.round(P.h), s: +P.s.toFixed(2), v: +P.v.toFixed(2) };
+  for (const [k, v] of Object.entries(vals)) if (skip !== k) $("pn-" + k).value = v;
+}
+$("pnum").innerHTML = [["r", "R"], ["g", "G"], ["b", "B"], ["h", "H"], ["s", "S"], ["v", "V"]].map(([k, l]) => `<label>${l}<input id="pn-${k}" name="${k}" inputmode="decimal" autocomplete="off" aria-label="${l}"></label>`).join("");
+const setRGB = (rgb) => { const [h, s, v] = rgb2hsv(...rgb); P.h = s ? h : P.h; P.s = s; P.v = v; }; // a grey has no hue: keep the one you had
+$("pnum").oninput = (e) => {
+  const k = e.target.name, n = Number(e.target.value);
+  if (!e.target.value.trim() || !Number.isFinite(n)) return;
+  if ("rgb".includes(k)) { const rgb = hsv2rgb(P.h, P.s, P.v); rgb["rgb".indexOf(k)] = clamp(Math.round(n), 0, 255); setRGB(rgb); }
+  else if (k === "h") P.h = ((n % 360) + 360) % 360;
+  else if (k === "s") P.s = clamp(n, 0, 1);
+  else P.v = clamp(n, 0, 1);
+  syncPicker(k);
+};
+$("phex").oninput = (e) => { const v = e.target.value.trim(); if (HEX.test(v)) { setRGB(fromHex(v)); syncPicker("hex"); } };
+const dragOn = (el, handler) => {
+  el.onpointerdown = (e) => { capture(el, e.pointerId); handler(e); el.onpointermove = handler; };
+  el.onpointerup = () => { el.onpointermove = null; };
+};
+dragOn(wheel, (e) => {
+  const b = wheel.getBoundingClientRect(), r = b.width / 2, dx = e.clientX - b.left - r, dy = e.clientY - b.top - r;
+  P.h = (((Math.PI - Math.atan2(dy, dx)) / (2 * Math.PI)) * 360 + 360) % 360; P.s = Math.min(Math.hypot(dx, dy) / r, 1);
+  syncPicker();
+});
+dragOn($("vbar"), (e) => { const b = $("vbar").getBoundingClientRect(); P.v = 1 - clamp((e.clientY - b.top) / b.height, 0, 1); syncPicker(); });
+
+const recent = () => { try { return JSON.parse(localStorage.recentColors ?? "[]").filter((h) => HEX.test(h)).slice(0, 8); } catch { return []; } };
+function renderRecent() {
+  $("precent").replaceChildren(...recent().map((h) => {
+    const b = Object.assign(document.createElement("button"), { className: "btn sw", title: h, onclick: () => { setRGB(fromHex(h)); syncPicker(); } });
+    b.style.background = h; // validated #rrggbb only
+    return b;
+  }));
+}
+function openPicker(initial, done) {
+  setRGB(fromHex(HEX.test(initial ?? "") ? initial : "#87d7ff"));
+  P.done = done; $("picker").hidden = false; syncPicker(); renderRecent();
+}
+const closePicker = () => { $("picker").hidden = true; P.done = null; };
+function commitPicker() {
+  const hex = toHex(hsv2rgb(P.h, P.s, P.v)), done = P.done;
+  try { localStorage.recentColors = JSON.stringify([hex, ...recent().filter((h) => h.toLowerCase() !== hex)].slice(0, 8)); } catch {}
+  closePicker(); done?.(hex);
+}
+$("pok").onclick = commitPicker;
+$("pno").onclick = closePicker;
+$("picker").onkeydown = (e) => {
+  if (e.key === "Escape") { e.stopPropagation(); closePicker(); }
+  else if (e.key === "Enter") { e.preventDefault(); commitPicker(); }
+};
+
+// board background: pattern and tint, stored on the board itself so everyone in it sees the same thing
+function applyBg() {
+  const c = els[B]?.content ?? {}, pattern = ["dots", "grid", "plain"].includes(c.bg) ? c.bg : "dots", tint = TINTS.includes(c.bgTint) || HEX.test(c.bgTint ?? "") ? c.bgTint : "";
+  const dot = "var(--dot)";
+  document.body.style.backgroundImage = pattern === "plain" ? "none" : pattern === "grid" ? `linear-gradient(${dot} 1px, transparent 1px), linear-gradient(90deg, ${dot} 1px, transparent 1px)` : `radial-gradient(${dot} 1px, transparent 1px)`;
+  document.body.style.backgroundColor = TINTS.includes(tint) ? `var(--tint-${tint})` : tint; // a palette name, a custom #rrggbb, or nothing
+  markBar($("bgpop"), [els[B] ?? { content: {} }], (e, p) => (p === "bg" ? pattern : colourKey(tint)));
+  showCustom($("bgpop"), [tint]);
+}
+$("bgBtn").onclick = () => { $("bgpop").hidden = !$("bgpop").hidden; applyBg(); };
+$("bgpop").onclick = (e) => {
+  const b = e.target.closest("button[data-val]");
+  if (!b || !els[B]) return;
+  const prop = b.parentElement.dataset.prop;
+  if (b.dataset.val === "custom") return openPicker(firstHex([els[B].content.bgTint]), (hex) => updateMany([{ id: B, changes: { bgTint: hex } }]));
+  updateMany([{ id: B, changes: { [prop]: b.dataset.val || null } }]);
+};
+$("linebar").onclick = (e) => {
+  const b = e.target.closest("button[data-val]");
+  if (!b) return;
+  const prop = b.parentElement.dataset.prop, lineIds = [...sel].filter((id) => els[id]?.elementType === "LINE");
+  const set = (val) => {
+    lineStyle = { ...lineStyle, [prop]: val };
+    try { localStorage.lineStyle = JSON.stringify(lineStyle); } catch {}
+    updateMany(lineIds.map((id) => ({ id, changes: { [prop]: val } }))); // one action, one undo step
+  };
+  if (b.dataset.val === "custom") return openPicker(firstHex(lineIds.map((id) => els[id].content.color)), set);
+  set(prop === "weight" ? Number(b.dataset.val) : b.dataset.val);
+};
+
+// a table is rows of text cells (at most 100 x 20, 500 characters a cell, whatever another client sent); the first row is the header
+const tableRows = (c) => {
+  const rows = Array.isArray(c.rows) ? c.rows.slice(0, 100).map((r) => (Array.isArray(r) ? r.slice(0, 20).map((v) => String(v ?? "").slice(0, 500)) : [])) : [];
+  const w = Math.max(1, ...rows.map((r) => r.length));
+  return (rows.length ? rows : [[""]]).map((r) => Array.from({ length: w }, (_, i) => r[i] ?? ""));
+};
+const tableCell = (v) => Object.assign(document.createElement("td"), { innerHTML: "" }).appendChild(Object.assign(document.createElement("input"), { className: "cell", name: "cell", value: v, maxLength: 500 })).parentElement;
+
+function taskRow(t) {
+  const row = Object.assign(document.createElement("div"), { className: "task" });
+  row.dataset.id = t.id;
+  row.append(
+    Object.assign(document.createElement("input"), { type: "checkbox", name: "done", checked: !!t.done }),
+    Object.assign(document.createElement("input"), { type: "text", name: "task", value: t.text ?? "", placeholder: "Task" }),
+  );
+  return row;
+}
+const taskMeta = (d) => {
+  const rows = [...d.querySelectorAll(".task")], done = rows.filter((r) => r.children[0].checked).length;
+  d.querySelector(".meta").textContent = rows.length ? `${done} of ${rows.length} done` : "";
+};
+
+function render(el) {
+  const type = el.elementType;
+  if (!KIND[type]) return;
+  let d = $(el.id);
+  const p = el.location.parentId;
+  const box = el.location.section === "TRASH" ? null : p === B ? $("canvas") : els[p]?.elementType === "COLUMN" && $(p)?.querySelector(".kids");
+  if (el.id === B) { applyBg(); return; } // the board being viewed: its own settings, not a card
+  if (!box) { d?.remove(); sel.delete(el.id); return; }
+  d ??= mk(el);
+  if (d.parentNode !== box) box.append(d);
+  d.classList.toggle("selected", sel.has(el.id));
+  d.classList.toggle("cut", cutIds.has(el.id));
+  if (COLOURABLE.has(type)) applyTint(d, el.content.color, type === "BOARD");
+  if (type === "BOARD") {
+    const tile = d.querySelector(".tile"), icon = ICON_NAMES.includes(el.content.icon) ? el.content.icon : "grid";
+    if (tile.dataset.icon !== icon) { tile.dataset.icon = icon; tile.innerHTML = ICONS[icon]; }
+    d.querySelector(".sub").textContent = countText((counts[el.id] ??= { boards: 0, cards: 0 })); // a board the server has not counted yet is new, so empty
+  }
+  // width is the card's own (resizable) setting on the canvas; inside a column it fills the column
+  const onCanvas = box.id === "canvas";
+  d.style.width = onCanvas && el.content.width ? el.content.width + "px" : "";
+  // height is a minimum (the card still grows with its content); images keep their aspect ratio, so their height follows the width
+  d.style.minHeight = onCanvas && el.content.height && !ASPECT.has(type) ? el.content.height + "px" : "";
+  if (box.id === "canvas") {
+    const { x, y } = el.location.position;
+    Object.assign(d.style, { position: "absolute", left: x + "px", top: y + "px" });
+  } else {
+    Object.assign(d.style, { position: "static", left: "", top: "" });
+    [...box.children].sort((a, b) => score(a) - score(b)).forEach((c) => box.append(c));
+  }
+  const t = editor(d);
+  if (t && t.contentEditable !== "true") { // don't clobber local typing
+    if (type === "CARD" && el.content.html) t.innerHTML = cleanHtml(el.content.html);
+    else t.textContent = el.content[FIELD[type]] || DEFAULT[type] || "";
+  }
+  if (type === "COLUMN") Object.values(els).filter((k) => k.location.parentId === el.id).forEach(render); // cards that came back with a restored column
+  if (type === "LINK") {
+    const u = safeUrl(el.content.url || ""), a = d.querySelector(".go");
+    d.querySelector(".domain").textContent = u ? el.content.previewSite || u.hostname : "";
+    d.querySelector(".ptitle").textContent = u ? el.content.previewTitle ?? "" : ""; // textContent: the page's own words are never parsed as HTML
+    d.querySelector(".pdesc").textContent = u ? el.content.previewDesc ?? "" : "";
+    const th = d.querySelector(".thumb"), pid = String(el.content.previewImage ?? "");
+    if (u && /^[0-9a-f-]{36}$/.test(pid)) { if (!th.src.endsWith("/api/media/" + pid)) { th.onload = () => relayout(d.id); th.onerror = () => { th.hidden = true; relayout(d.id); }; th.src = "/api/media/" + pid; } th.hidden = false; } else { th.hidden = true; th.removeAttribute("src"); }
+    a.hidden = !u; u ? (a.href = u.href) : a.removeAttribute("href");
+  }
+  if (type === "TASK_LIST") {
+    const list = d.querySelector(".tasks");
+    if (!list.contains(document.activeElement)) { // don't rebuild the list under someone who is typing in it
+      list.replaceChildren(...(el.content.tasks ?? []).map(taskRow));
+      taskMeta(d);
+    }
+  }
+  if (type === "TABLE") {
+    const body = d.querySelector("tbody"), rows = tableRows(el.content), typing = body.contains(document.activeElement);
+    const same = body.rows.length === rows.length && body.rows[0]?.cells.length === rows[0].length;
+    if (!typing || !same) { // never redraw the grid under someone who is typing, unless rows or columns were added or removed
+      const at = typing ? [...body.querySelectorAll(".cell")].indexOf(document.activeElement) : -1;
+      body.replaceChildren(...rows.map((r, i) => {
+        const tr = document.createElement("tr");
+        if (i === 0 && el.content.header !== false) tr.className = "head";
+        tr.append(...r.map(tableCell));
+        return tr;
+      }));
+      if (at >= 0) body.querySelectorAll(".cell")[Math.min(at, rows.length * rows[0].length - 1)].focus();
+    }
+  }
+  if (type === "LINE") layoutLine(el);
+  if (type === "SKETCH") {
+    const { w = 1, h = 1, paths = [] } = el.content, svg = d.querySelector("svg");
+    svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+    svg.querySelectorAll("path").forEach((p) => p.setAttribute("d", paths.map(pathD).join("")));
+  }
+  if (type === "COMMENT_THREAD") {
+    const list = d.querySelector(".msgs");
+    list.replaceChildren(...(el.content.messages ?? []).map((m) => {
+      const row = Object.assign(document.createElement("div"), { className: "msg" });
+      const by = Object.assign(document.createElement("div"), { className: "by" });
+      by.append(Object.assign(document.createElement("b"), { textContent: m.by }), " " + new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+      row.append(by, Object.assign(document.createElement("div"), { className: "body", textContent: m.text })); // textContent: message text is never parsed as HTML
+      return row;
+    }));
+    list.scrollTop = list.scrollHeight;
+  }
+  if (type === "IMAGE") {
+    const img = d.querySelector("img"), id = String(el.content.mediaId ?? "");
+    if (/^[0-9a-f-]{36}$/.test(id) && !img.src.endsWith("/api/media/" + id)) { img.onload = () => relayout(d.id); img.src = "/api/media/" + id; } // the card's height is only known once the image has loaded
+    img.alt = el.content.name || "Image";
+  }
+  // last, once the card has its final size: option bars, lines attached to this card, search matches
+  if (sel.has(el.id)) syncBars();
+  if (type !== "LINE") relayout(el.id);
+  if (document.body.classList.contains("searching")) { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 200); } // keep matches current while others edit
+}
+
+// Updates run one at a time so each carries the previous ack'd version as its base. items: [{ id, changes }], sent as one action
+// (the server applies all of it or none). Resolves to true if the server accepted it; `record` puts it on the undo stack.
+let q = Promise.resolve();
+const updateMany = (items, record = true) => (q = q.then(async () => {
+  const live = items.map((i) => ({ ...i, el: els[i.id] })).filter((i) => i.el);
+  if (!live.length) return false;
+  const prev = live.map((i) => Object.fromEntries(Object.keys(i.changes).map((k) => [k, i.el.content[k] ?? null]))); // what each key was before
+  const ups = live.map((i) => ({ ...i, vid: sid + "-" + ++n }));
+  const r = await send({ type: "ELEMENT_UPDATE", updates: ups.map((u) => ({ id: u.id, changes: u.changes, meta: { modifiedVersionId: u.el.meta.versionId, versionId: u.vid } })) });
+  if (r.status !== 200) { await resync(); return false; } // 409/403: refetch
+  ups.forEach((u) => { Object.assign(u.el.content, u.changes); u.el.meta.versionId = u.vid; render(u.el); });
+  if (record) pushHistory({ kind: "update", items: live.map((i, k) => ({ id: i.id, prev: prev[k], next: i.changes })) });
+  return true;
+}));
+const update = (el, changes) => updateMany([{ id: el.id, changes }]);
+// any write the server did not accept leaves optimistic local state behind; refetch to drop it
+const resync = () => load().catch(() => { $("canvas").innerHTML = ""; els = {}; status("bad", `No access to ${B}`); });
+// One action for the whole batch: the server applies all of it or none of it. Resolves to true if accepted.
+const moveMany = (items, record = true) => {
+  const moves = items.map(({ el, location }) => ({ id: el.id, from: el.location, to: location }));
+  items.forEach(({ el, location }) => { el.location = location; });
+  items.forEach(({ el }) => render(el));
+  return send({ type: "ELEMENT_MOVE_MULTI", moves: moves.map((m) => ({ id: m.id, location: m.to })) }).then(async (r) => {
+    if (r.status !== 200) { await resync(); return false; }
+    if (record) pushHistory({ kind: "move", moves });
+    return true;
+  });
+};
+const move = (el, location) => moveMany([{ el, location }]);
+
+// --- undo / redo -------------------------------------------------------------------------------
+// A stack of inverse operations for this visit to a board. Entries hold ids and plain data, never live objects, because a
+// refetch replaces `els`. Creating, deleting, restoring and dragging are all location changes, so one "move" entry covers them.
+const history = { undo: [], redo: [], busy: false };
+function pushHistory(entry) {
+  if (history.busy) return;
+  history.undo.push(entry); if (history.undo.length > 100) history.undo.shift();
+  history.redo = []; syncHistory(); // a new action ends the redo branch
+}
+function syncHistory() {
+  $("undo").disabled = history.busy || !history.undo.length;
+  $("redo").disabled = history.busy || !history.redo.length;
+}
+// trashed cards are not loaded after a refetch; undo and redo may need to bring them back
+async function ensure(ids) {
+  const missing = ids.filter((id) => !els[id]);
+  if (!missing.length) return;
+  const trashed = await fetchBoards([B + "-trash"]).catch(() => ({}));
+  missing.forEach((id) => { if (trashed[id]) els[id] = trashed[id]; });
+}
+async function step(from, to, dir) {
+  if (history.busy || !from.length) return;
+  const entry = from.pop(), back = dir === "undo";
+  history.busy = true; syncHistory();
+  let ok = false;
+  try {
+    if (entry.kind === "update") {
+      await ensure(entry.items.map((i) => i.id));
+      ok = await updateMany(entry.items.map((i) => ({ id: i.id, changes: back ? i.prev : i.next })), false);
+    } else {
+      await ensure(entry.moves.map((m) => m.id));
+      const items = entry.moves.map((m) => ({ el: els[m.id], location: back ? m.from : m.to })).filter((i) => i.el);
+      ok = items.length > 0 && await moveMany(items, false);
+    }
+  } catch { ok = false; }
+  history.busy = false;
+  if (ok) to.push(entry); else flash(`Could not ${dir} that`);
+  syncHistory();
+}
+const undo = () => step(history.undo, history.redo, "undo");
+const redo = () => step(history.redo, history.undo, "redo");
+$("undo").onclick = undo;
+$("redo").onclick = redo;
+
+// delete = move to the board's trash, remembering where each card came from; refresh the Trash panel if it is open
+async function trashIds(ids) {
+  const items = tops(ids).map((id) => els[id]).filter(Boolean);
+  if (!items.length) return;
+  setSel([]);
+  await moveMany(items.map((el) => ({ el, location: { parentId: B + "-trash", section: "TRASH", position: { score: 65536, addedDate: Date.now(), restoreLocation: el.location } } })));
+  if ($("trash").style.display === "block") openTrash();
+}
+
+// the column under the cursor, ignoring the cards being dragged (they sit under the cursor and, if they came from a column, would resolve to it)
+// what is under the cursor that can take the dragged cards: a column (they go into it) or a board tile (they go inside that board)
+const targetUnder = (x, y, skip) => document.elementsFromPoint(x, y).filter((nd) => !skip.some((g) => g.contains(nd))).map((nd) => nd.closest(".column, .board")).find(Boolean);
+const okTarget = (t, gs) => (t && (t.classList.contains("board") || !gs.some(noNest)) ? t : null); // columns and lines cannot go into a column, but can go into a board
+const mark = (t) => { document.querySelectorAll(".column.drop, .board.drop").forEach((c) => c !== t && c.classList.remove("drop")); t?.classList.add("drop"); };
+// dropping cards on a board tile moves them inside that board (the server refuses a board dropped into itself or into its own contents)
+function moveIntoBoard(group, tile) {
+  const cnt = (counts[tile.id] ??= { boards: 0, cards: 0 }), moved = group.map((it) => els[it.g.id]);
+  moveMany(moved.map((el, i) => ({ el, location: { parentId: tile.id, section: "CANVAS", position: { x: 60 + (i % 4) * 250, y: 60 + Math.floor(i / 4) * 140, score: 65536 } } })));
+  for (const el of moved) {
+    if (el.elementType === "BOARD") cnt.boards++;
+    else if (el.elementType === "COLUMN") cnt.cards += Object.values(els).filter((k) => k.location.parentId === el.id).length;
+    else if (el.elementType !== "LINE") cnt.cards++;
+  }
+  render(els[tile.id]); // the tile's count
+}
+const overTrash = (x, y) => document.elementsFromPoint(x, y).some((nd) => $("trashBtn").contains(nd));
+let spaceDown = false, tool = null; // tool: "line" | "draw" while one of those is active
+const noNest = (g) => g.classList.contains("column") || g.classList.contains("line"); // these stay on the canvas
+
+function wire(d) {
+  let timer, drag, resize, handle, pending = false, taskTimer, taskPending = false;
+  const el = () => els[d.id], t = editor(d), type = () => el().elementType;
+
+  d.onpointerdown = (e) => {
+    if (e.button === 1 || spaceDown || tool) return; // panning or drawing a line/sketch: let it bubble to the document handler
+    e.stopPropagation(); // a card inside a column must not also start dragging the column
+    if (e.button !== 0 || e.target.closest("a, input, button") || editing(d)) return; // controls and text being edited keep their own mouse behaviour
+    e.preventDefault(); // a real mouse would otherwise start a text selection / native drag
+    capture(d, e.pointerId); d.focus({ preventScroll: true });
+    if (e.target.classList.contains("grip")) {
+      const r = d.getBoundingClientRect(), g = e.target.classList;
+      resize = { x0: e.clientX, y0: e.clientY, w0: r.width / view.z, h0: r.height / view.z, dir: g.contains("se") ? "se" : g.contains("s") ? "s" : "e" };
+      return;
+    }
+    if (e.target.classList.contains("h")) { handle = { which: e.target.classList.contains("h1") ? 1 : 2 }; return; } // a line's endpoint
+    const mod = e.shiftKey || e.ctrlKey || e.metaKey, was = sel.has(d.id);
+    if (!was) setSel(mod ? [...sel, d.id] : [d.id]);
+    drag = { sx: e.clientX, sy: e.clientY, moved: false, mod, was };
+  };
+
+  d.onpointermove = (e) => {
+    if (handle) { // reshape the line live; saved on release. A card under the cursor shows as the attach target.
+      const q = toBoard(e.clientX, e.clientY), p = el().location.position, w = handle.which;
+      handle.x = Math.round(q.x - p.x); handle.y = Math.round(q.y - p.y);
+      handle.target = cardAt(e.clientX, e.clientY, w === 1 ? el().content.to : el().content.from); // never both ends on one card
+      markTarget(handle.target);
+      layoutLine(el(), { ["x" + w]: handle.x, ["y" + w]: handle.y, [w === 1 ? "from" : "to"]: handle.target });
+      return;
+    }
+    if (resize) {
+      const { dir, w0, h0 } = resize, dx = (e.clientX - resize.x0) / view.z, dy = (e.clientY - resize.y0) / view.z;
+      if (ASPECT.has(type())) { // keep the aspect ratio: scale by the axis that was dragged, the larger one at the corner
+        const k = dir === "e" ? (w0 + dx) / w0 : dir === "s" ? (h0 + dy) / h0 : Math.max((w0 + dx) / w0, (h0 + dy) / h0);
+        resize.w = clamp(w0 * k, 120, 800);
+        d.style.width = resize.w + "px";
+      } else {
+        if (dir !== "s") { resize.w = clamp(w0 + dx, 120, 800); d.style.width = resize.w + "px"; }
+        if (dir !== "e") { resize.h = clamp(h0 + dy, 40, 1600); d.style.minHeight = resize.h + "px"; }
+      }
+      relayout(d.id);
+      return;
+    }
+    if (!drag) return;
+    if (!drag.moved) {
+      if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 3) return; // a click, not a drag
+      drag.moved = true;
+      // lift the whole selection out of its parents into the zoomed canvas, keeping each card's size and place on screen
+      // a line attached to a card is not dragged on its own: it follows its cards
+      drag.group = tops([...sel]).map((id) => $(id)).filter((g) => g && !attached(els[g.id])).map((g) => {
+        const r = g.getBoundingClientRect(), p = toBoard(r.left, r.top);
+        return { g, x: p.x, y: p.y, w: r.width / view.z };
+      });
+      if (!drag.group.length) { drag = null; return; }
+      for (const it of drag.group) {
+        $("canvas").append(it.g);
+        it.g.classList.add("dragging");
+        Object.assign(it.g.style, { position: "absolute", width: it.w + "px", zIndex: 5 });
+      }
+      capture(d, e.pointerId); // moving the card in the DOM released the capture
+    }
+    const dx = (e.clientX - drag.sx) / view.z, dy = (e.clientY - drag.sy) / view.z;
+    for (const it of drag.group) { it.g.style.left = it.x + dx + "px"; it.g.style.top = it.y + dy + "px"; }
+    drag.group.forEach((it) => relayout(it.g.id)); // attached lines follow while you drag
+    const over = overTrash(e.clientX, e.clientY);
+    $("trashBtn").classList.toggle("drop", over);
+    const gs = drag.group.map((it) => it.g);
+    mark(over ? null : okTarget(targetUnder(e.clientX, e.clientY, gs), gs));
+  };
+
+  d.onpointerup = (e) => {
+    if (handle) {
+      const { which, x, y, target } = handle; handle = null; markTarget(null);
+      if (x !== undefined) update(el(), { ["x" + which]: x, ["y" + which]: y, [which === 1 ? "from" : "to"]: target ?? null }); // dropped on empty canvas: detached
+      return;
+    }
+    if (resize) { // resize.w / resize.h only exist if the handle actually moved along that axis
+      const { w, h } = resize; resize = null;
+      const changes = { ...(w && { width: Math.round(w) }), ...(h && { height: Math.round(h) }) };
+      if (Object.keys(changes).length) update(el(), changes);
+      return;
+    }
+    if (!drag) return;
+    const { moved, mod, was } = drag, group = drag.group; drag = null;
+    $("trashBtn").classList.remove("drop"); mark(null);
+    if (!moved) { // plain click: a modifier-click on a selected card deselects it; a click inside a group narrows the selection to it
+      if (mod && was) setSel([...sel].filter((id) => id !== d.id));
+      else if (!mod && was && sel.size > 1) setSel([d.id]);
+      return;
+    }
+    for (const it of group) { it.g.classList.remove("dragging"); it.g.style.zIndex = ""; }
+    const gs = group.map((it) => it.g), ids = gs.map((g) => g.id);
+    if (overTrash(e.clientX, e.clientY)) return void trashIds(ids);
+    const tgt = okTarget(targetUnder(e.clientX, e.clientY, gs), gs);
+    if (tgt?.classList.contains("board")) return void moveIntoBoard(group, tgt);
+    const col = tgt;
+    if (col) {
+      const top = Math.max(0, ...[...col.querySelector(".kids").children].filter((c) => !gs.includes(c)).map(score));
+      moveMany([...group].sort((a, b) => a.y - b.y).map((it, i) => ({ el: els[it.g.id], location: { parentId: col.id, section: "COLUMN", position: { score: top + 65536 * (i + 1) } } })));
+    } else {
+      moveMany(group.map((it) => ({ el: els[it.g.id], location: { parentId: B, section: "CANVAS", position: { x: Math.round(parseFloat(it.g.style.left)), y: Math.round(parseFloat(it.g.style.top)), score: 65536 } } })));
+    }
+  };
+
+  const startEdit = () => {
+    if (!t) { (d.querySelector(".reply") ?? d.querySelector(".cell"))?.focus(); return; } // comments: the reply box; tables: the first cell
+
+    t.contentEditable = "true"; t.focus();
+    const r = document.createRange(); r.selectNodeContents(t);
+    if (type() === "CARD") r.collapse(false); // notes: caret at the end; titles: select all so typing replaces them
+    const sel2 = getSelection(); sel2.removeAllRanges(); sel2.addRange(r);
+  };
+  d.startEdit = startEdit;
+  d.ondblclick = (e) => {
+    e.stopPropagation();
+    if (e.target.closest("a, input, button") || e.target.classList.contains("grip")) return;
+    if (type() === "BOARD") location.hash = d.id; // open it; F2 renames
+    else if (type() === "IMAGE") open(d.querySelector("img").src, "_blank", "noopener");
+    else if (type() === "CARD" || type() === "LINK" || e.target.closest(".title")) startEdit();
+  };
+
+  const value = () => (type() === "CARD" ? t.innerText : t.innerText.replace(/\s+/g, " ").trim());
+  const flush = () => {
+    clearTimeout(timer);
+    const p = pending; pending = false;
+    if (!p) return null;
+    const changes = { [FIELD[type()]]: value() }; // the plain text is always kept: search, export and older clients read it
+    if (type() === "CARD") { const html = cleanHtml(t.innerHTML); changes.html = hasFormatting(html) ? html : null; }
+    if (type() === "LINK") Object.assign(changes, { previewTitle: null, previewDesc: null, previewSite: null, previewImage: null }); // the old preview is cleared in the same undo step
+    const done = update(el(), changes);
+    if (type() === "LINK") done.then((ok) => ok && unfurlLink(d.id));
+    return done;
+  };
+  if (t && d.classList.contains("note")) t.addEventListener("paste", (e) => { // pasted text comes in clean: formatting is kept only as far as the allow-list allows
+    e.preventDefault();
+    const html = e.clipboardData.getData("text/html");
+    html && hasFormatting(cleanHtml(html)) ? document.execCommand("insertHTML", false, cleanHtml(html)) : document.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
+  });
+  if (t) {
+    t.onblur = () => { t.contentEditable = "false"; (flush() ?? Promise.resolve()).then(() => el() && render(el())); }; // re-render: drop local text that lost a 409
+    t.oninput = () => { pending = true; clearTimeout(timer); timer = setTimeout(flush, 400); };
+  }
+
+  // to-do lists: the whole task array is the unit of update (compare-and-swap on the card's version)
+  const commitTasks = () => {
+    clearTimeout(taskTimer); taskPending = false; taskMeta(d);
+    return update(el(), { tasks: [...d.querySelectorAll(".task")].map((r) => ({ id: r.dataset.id, text: r.children[1].value, done: r.children[0].checked })) });
+  };
+  d.addEventListener("input", (e) => { if (e.target.matches(".task input[type=text]")) { taskPending = true; clearTimeout(taskTimer); taskTimer = setTimeout(commitTasks, 400); } });
+  d.addEventListener("change", (e) => { if (e.target.matches(".task input[type=checkbox]")) commitTasks(); });
+  const addTask = (after) => {
+    const row = taskRow({ id: rid(), text: "", done: false });
+    after ? after.after(row) : d.querySelector(".tasks").append(row);
+    row.children[1].focus();
+    return row;
+  };
+  d.querySelector(".add-task")?.addEventListener("click", () => addTask(null)); // committed once something is typed
+  d.addEventListener("focusout", () => setTimeout(async () => {
+    const list = d.querySelector(".tasks");
+    if (!list || list.contains(document.activeElement) || !el()) return;
+    if (taskPending) await commitTasks(); // send what was typed before redrawing from the model
+    render(el());
+  }));
+  // tables: like a to-do list, the whole grid is the unit of update
+  const readRows = () => [...d.querySelectorAll("tbody tr")].map((tr) => [...tr.querySelectorAll(".cell")].map((i) => i.value));
+  let cellTimer, cellPending = false;
+  const commitTable = () => { clearTimeout(cellTimer); cellPending = false; return update(el(), { rows: readRows() }); };
+  d.addEventListener("input", (e) => { if (e.target.matches(".cell")) { cellPending = true; clearTimeout(cellTimer); cellTimer = setTimeout(commitTable, 400); } });
+  d.querySelector(".tbl-tools")?.addEventListener("mousedown", (e) => e.preventDefault()); // keep focus in the cell: leaving it would redraw the grid from the model mid-edit
+  d.querySelector(".tbl-tools")?.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-t]");
+    if (!b) return;
+    clearTimeout(cellTimer); cellPending = false; // this update carries what was typed
+    const rows = readRows(), w = rows[0].length;
+    ({
+      row: () => rows.length < 100 && rows.push(Array(w).fill("")),
+      col: () => w < 20 && rows.forEach((r) => r.push("")),
+      drow: () => rows.length > 1 && rows.pop(),
+      dcol: () => w > 1 && rows.forEach((r) => r.pop()),
+    })[b.dataset.t]();
+    update(el(), { rows });
+  });
+  d.addEventListener("focusout", () => setTimeout(async () => {
+    const body = d.querySelector("tbody");
+    if (!body || body.contains(document.activeElement) || !el()) return;
+    if (cellPending) await commitTable(); // send what was typed before redrawing from the model
+    render(el());
+  }));
+  const cellKey = (e) => { // Enter moves down a row, adding one at the bottom
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const td = e.target.closest("td"), tr = td.parentElement, i = [...tr.children].indexOf(td), below = tr.nextElementSibling;
+    if (below) return void below.children[i].querySelector(".cell").focus();
+    const row = tr.cloneNode(true);
+    row.className = ""; row.querySelectorAll(".cell").forEach((c) => (c.value = ""));
+    tr.after(row); row.children[i].querySelector(".cell").focus(); commitTable();
+  };
+  const taskKey = (e) => {
+    if (e.target.type !== "text") return;
+    const row = e.target.closest(".task");
+    if (e.key === "Enter") { e.preventDefault(); addTask(row); commitTasks(); }
+    else if (e.key === "Backspace" && !e.target.value) {
+      e.preventDefault();
+      const next = row.previousElementSibling ?? row.nextElementSibling;
+      row.remove(); next?.children[1].focus(); commitTasks();
+    }
+  };
+
+  // Only keys that belong to text being edited are handled (and stopped) here. Delete, Enter, F2 and the rest act on the
+  // whole selection and live in the document handler below.
+  const reply = d.querySelector(".reply");
+  reply?.addEventListener("keydown", async (e) => {
+    if (e.key !== "Enter" || !reply.value.trim()) return;
+    e.preventDefault();
+    const text = reply.value; reply.value = "";
+    const r = await send({ type: "COMMENT_ADD", id: d.id, text }); // the server stamps author and time
+    if (r.status === 200) addMessage(el(), r.message); else { reply.value = text; flash("Could not post that comment"); }
+  });
+
+  d.onkeydown = (e) => {
+    if (e.target.closest(".reply")) { e.stopPropagation(); return; }
+    if (e.target.closest(".cell")) { e.stopPropagation(); return cellKey(e); }
+    if (e.target.closest(".task")) { e.stopPropagation(); return taskKey(e); }
+    if (editing(d)) {
+      e.stopPropagation(); // keys typed in a card must never reach the column around it
+      if (e.key === "Escape" || (e.key === "Enter" && type() !== "CARD")) { e.preventDefault(); t.blur(); d.focus({ preventScroll: true }); }
+    }
+  };
+}
+
+// --- document-level input: panning, marquee selection, keyboard ---------------------------------
+addEventListener("pointerdown", (e) => {
+  if (!$("picker").hidden && !e.target.closest("#picker, .sw.custom")) closePicker(); // a click anywhere else dismisses the picker
+  if (e.target.closest("#tools, #top, #trash, #zoom, #drawbar, #ctx, #bgpop, #picker")) return;
+  if (e.button === 1 || (spaceDown && e.button === 0)) { e.preventDefault(); return startPan(e); }
+  if (e.button === 0 && tool === "line") { e.preventDefault(); return startLine(e); }
+  if (e.button === 0 && tool === "draw") { e.preventDefault(); return startStroke(e); }
+  if (e.button === 0 && !e.target.closest(".card")) startMarquee(e);
+});
+function startPan(e) {
+  let x = e.clientX, y = e.clientY;
+  const move = (m) => { view.x += m.clientX - x; view.y += m.clientY - y; x = m.clientX; y = m.clientY; applyView(); };
+  const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); };
+  addEventListener("pointermove", move); addEventListener("pointerup", up);
+}
+function startMarquee(e) {
+  const sx = e.clientX, sy = e.clientY, box = $("marquee"), base = e.shiftKey || e.ctrlKey || e.metaKey ? new Set(sel) : new Set();
+  let moved = false;
+  const move = (m) => {
+    if (!moved && Math.hypot(m.clientX - sx, m.clientY - sy) < 4) return;
+    moved = true; box.hidden = false;
+    const l = Math.min(sx, m.clientX), t = Math.min(sy, m.clientY), r = Math.max(sx, m.clientX), b = Math.max(sy, m.clientY);
+    Object.assign(box.style, { left: l + "px", top: t + "px", width: r - l + "px", height: b - t + "px" });
+    // only cards sitting directly on the canvas are picked up; cards inside a column come with their column
+    const hit = topCards().filter((c) => { const k = (c.classList.contains("line") ? c.querySelector("svg") : c).getBoundingClientRect(); return k.left < r && k.right > l && k.top < b && k.bottom > t; }).map((c) => c.id);
+    setSel([...base, ...hit]);
+  };
+  const up = () => {
+    box.hidden = true;
+    if (!moved && !base.size) setSel([]); // a plain click on empty space clears the selection
+    removeEventListener("pointermove", move); removeEventListener("pointerup", up);
+  };
+  addEventListener("pointermove", move); addEventListener("pointerup", up);
+}
+addEventListener("keydown", (e) => {
+  if (e.target.closest?.("input, textarea, [contenteditable=true]")) return; // typing belongs to the field
+  const mod = e.ctrlKey || e.metaKey;
+  if (e.key === " ") { e.preventDefault(); spaceDown = true; document.body.classList.add("pan"); }
+  else if (mod && e.key.toLowerCase() === "a") { e.preventDefault(); setSel(topCards().map((c) => c.id)); }
+  else if (mod && e.key.toLowerCase() === "c") copy();
+  else if (mod && e.key.toLowerCase() === "x") { e.preventDefault(); cut(); }
+  else if (mod && e.key.toLowerCase() === "d") { e.preventDefault(); duplicate(); }
+  else if (e.key === "/") { e.preventDefault(); $("q").focus(); }
+  else if (e.shiftKey && e.code === "Digit1") { e.preventDefault(); fit(); }
+  else if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+  else if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); }
+  else if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); zoomAt(1.2); }
+  else if (mod && e.key === "-") { e.preventDefault(); zoomAt(1 / 1.2); }
+  else if (mod && e.key === "0") { e.preventDefault(); resetView(); }
+  else if (e.key === "Escape") {
+    if (readClip()?.cut) { localStorage.removeItem("clip"); markCut([]); } // Esc also cancels a pending cut
+    if (!$("picker").hidden) closePicker(); else if (tool) setTool(null); else setSel([]);
+  }
+  else if (sel.size && (e.key === "Delete" || e.key === "Backspace")) { e.preventDefault(); trashIds([...sel]); }
+  else if (sel.size === 1 && (e.key === "Enter" || e.key === "F2")) { e.preventDefault(); $([...sel][0])?.startEdit(); }
+});
+addEventListener("keyup", (e) => { if (e.key === " ") { spaceDown = false; document.body.classList.remove("pan"); } });
+
+// first spot on a grid that does not overlap a card already on the canvas, searched in board coordinates inside the visible area
+const SIZE = { CARD: [200, 64], COLUMN: [240, 140], BOARD: [124, 150], TASK_LIST: [240, 150], LINK: [240, 100], IMAGE: [232, 170], COMMENT_THREAD: [240, 90], TABLE: [330, 150] };
+function freeSpot(type) {
+  const [w, h] = SIZE[type], gap = 16;
+  const taken = topCards().map((c) => { const r = c.getBoundingClientRect(), a = toBoard(r.left, r.top), b = toBoard(r.right, r.bottom); return { l: a.x, t: a.y, r: b.x, b: b.y }; });
+  const o = toBoard(110, 90), far = toBoard(innerWidth, innerHeight);
+  for (let y = o.y; y < far.y - h; y += 24)
+    for (let x = o.x; x < far.x - w; x += 24)
+      if (!taken.some((k) => x < k.r + gap && x + w + gap > k.l && y < k.b + gap && y + h + gap > k.t)) return { x: Math.round(x), y: Math.round(y) };
+  return { x: Math.round(o.x + Math.random() * 200), y: Math.round(o.y + Math.random() * 200) }; // visible area is full: fall back to a random spot
+}
+
+function newElement(elementType, content, pos) {
+  const now = Date.now();
+  return {
+    id: now.toString(36) + sid + n++, elementType,
+    location: { parentId: B, section: "CANVAS", position: { ...pos, score: 65536 } },
+    content, meta: { creator: sid, createdTime: now, modifiedTime: now, platform: "web", versionId: sid + "-" + ++n },
+  };
+}
+const trashOf = (loc) => ({ parentId: loc.parentId + "-trash", section: "TRASH", position: { score: 65536, addedDate: Date.now(), restoreLocation: loc } });
+function commit(el, { select = true } = {}) {
+  els[el.id] = el; render(el);
+  if (select) { setSel([el.id]); $(el.id)?.startEdit(); } // a new card opens for typing or naming straight away
+  const home = el.location, trashed = trashOf(home);
+  send({ type: "ELEMENT_CREATE", ...el }).then((r) => {
+    if (r.status !== 200) resync();
+    else pushHistory({ kind: "move", moves: [{ id: el.id, from: trashed, to: home }] }); // undoing a creation sends it to the Trash; redo brings it back
+  });
+}
+const add = (elementType, content, pos = freeSpot(elementType)) => commit(newElement(elementType, content, pos));
+
+// A link card's preview comes from the server, which fetches the page (see unfurl.ts). It is not recorded for undo: editing the URL
+// clears the old preview in the same step, so undo restores the old link together with its old preview.
+async function unfurlLink(id) {
+  const url = els[id]?.content.url, u = safeUrl(url ?? "");
+  if (!u) return;
+  try {
+    const r = await fetch("/api/unfurl?url=" + encodeURIComponent(u.href), { headers: { "x-user-id": uid } });
+    if (!r.ok || els[id]?.content.url !== url) return; // refused, or the link was edited again while we waited
+    const p = await r.json();
+    await updateMany([{ id, changes: { previewTitle: p.title ?? null, previewDesc: p.description ?? null, previewSite: p.site ?? null, previewImage: p.mediaId ?? null } }], false);
+  } catch { /* no preview: the card still shows the link */ }
+}
+
+// --- copy, paste, duplicate ---------------------------------------------------------------------
+// The clipboard lives in localStorage, so it works across boards and tabs. Copy makes new cards (a column comes with its cards, a
+// board with everything inside it; a comment thread is pasted empty). Cut is a real move: the cards keep their identity, comments
+// and line attachments, and move to wherever you paste.
+const toast = (msg) => { status("live", msg); setTimeout(() => (s.connected ? status("live", "Live as " + uid) : status("wait", "Offline")), 1600); };
+const readClip = () => { try { return JSON.parse(localStorage.clip ?? "null"); } catch { return null; } };
+// a board's direct children plus what is inside its columns, fresh from the server
+async function fetchAll(boardId) {
+  const base = await fetchBoards([boardId]);
+  const cols = Object.values(base).filter((e) => e.elementType === "COLUMN" && e.location.parentId === boardId).map((e) => e.id);
+  return cols.length ? { ...base, ...(await fetchBoards(cols)) } : base;
+}
+// everything under a board, nested boards included, as plain data. Parents are named by id; the board itself is "root".
+const MAX_COPY = 2000;
+async function subtreeOf(root) {
+  const out = [], seen = new Set();
+  const walk = async (id) => {
+    if (seen.has(id) || out.length > MAX_COPY) return;
+    seen.add(id);
+    for (const e of Object.values(await fetchAll(id))) {
+      if (e.id === id || !KIND[e.elementType] || e.location.section === "TRASH") continue;
+      const direct = e.location.parentId === id;
+      out.push({ id: e.id, type: e.elementType, parent: direct && id === root ? "root" : e.location.parentId, section: e.location.section, position: e.location.position, content: structuredClone(e.content) });
+      if (direct && e.elementType === "BOARD") await walk(e.id);
+    }
+  };
+  await walk(root);
+  return out;
+}
+// the same data as new elements under `rootId`, with fresh ids (parents first, so the server knows each parent)
+function cloneSubtree(list, rootId, out) {
+  const ids = new Map([["root", rootId]]);
+  for (const e of list) ids.set(e.id, newElement(e.type, {}, {}).id);
+  const depth = (e, k = 0) => (e.parent === "root" || k > 20 ? 0 : 1 + depth(list.find((x) => x.id === e.parent) ?? { parent: "root" }, k + 1));
+  for (const e of [...list].sort((a, b) => depth(a) - depth(b))) {
+    const parent = ids.get(e.parent);
+    if (!parent) continue;
+    const c = structuredClone(e.content);
+    if (e.type === "LINE") for (const k of ["from", "to"]) c[k] = ids.get(c[k]) ?? null; // attachments follow the copies
+    if (e.type === "COMMENT_THREAD") c.messages = [];
+    const col = e.section === "COLUMN", pos = e.position ?? {}, el = newElement(e.type, c, {});
+    el.id = ids.get(e.id);
+    el.location = { parentId: parent, section: col ? "COLUMN" : "CANVAS", position: col ? { score: pos.score ?? 65536 } : { x: pos.x ?? 0, y: pos.y ?? 0, score: 65536 } };
+    out.push(el);
+  }
+}
+// what a board tile shows under its name, worked out the same way the server does
+const tally = (id, list) => {
+  let boards = 0, cards = 0;
+  for (const e of list) {
+    if (e.location.parentId !== id) continue;
+    if (e.elementType === "BOARD") boards++;
+    else if (e.elementType === "COLUMN") cards += list.filter((k) => k.location.parentId === e.id).length;
+    else if (e.elementType !== "LINE") cards++;
+  }
+  return { boards, cards };
+};
+async function snapshot() {
+  const picked = tops([...sel]).map((id) => els[id]).filter(Boolean), items = [];
+  for (const e of picked) {
+    const r = $(e.id)?.getBoundingClientRect(), at = e.location.section === "CANVAS" ? e.location.position : r ? toBoard(r.left, r.top) : { x: 0, y: 0 };
+    const kids = e.elementType === "COLUMN" ? Object.values(els).filter((k) => k.location.parentId === e.id && KIND[k.elementType] && k.elementType !== "BOARD").sort((a, b) => a.location.position.score - b.location.position.score) : [];
+    const it = { id: e.id, type: e.elementType, content: structuredClone(e.content), x: at.x ?? 0, y: at.y ?? 0, kids: kids.map((k) => ({ type: k.elementType, content: structuredClone(k.content) })) };
+    if (e.elementType === "BOARD") it.subtree = await subtreeOf(e.id);
+    items.push(it);
+  }
+  return items.length ? { items } : null;
+}
+function place(clip, base) { // base: the board point where the group's top-left corner lands
+  const minx = Math.min(...clip.items.map((i) => i.x)), miny = Math.min(...clip.items.map((i) => i.y)), idMap = new Map();
+  const made = clip.items.map((it) => {
+    const el = newElement(it.type, structuredClone(it.content), { x: Math.round(base.x + it.x - minx), y: Math.round(base.y + it.y - miny) });
+    if (it.type === "COMMENT_THREAD") el.content.messages = []; // the server starts every thread empty anyway
+    idMap.set(it.id, el.id);
+    return el;
+  });
+  for (const el of made) if (el.elementType === "LINE") for (const k of ["from", "to"]) el.content[k] = idMap.get(el.content[k]) ?? null; // an attachment to a card that was not copied is dropped
+  const kids = clip.items.flatMap((it, i) => it.kids.map((k, j) => ({ ...newElement(k.type, structuredClone(k.content), {}), location: { parentId: made[i].id, section: "COLUMN", position: { score: 65536 * (j + 1) } } })));
+  const deep = []; // the insides of copied boards: created on the server, shown only when you open that board
+  clip.items.forEach((it, i) => { if (it.subtree) cloneSubtree(it.subtree, made[i].id, deep); });
+  commitMany(made, kids, deep);
+}
+// several creations are one undo step; parents are created before their children so the server knows each parent
+function commitMany(created, kids = [], deep = []) {
+  const shown = [...created, ...kids];
+  shown.forEach((el) => { els[el.id] = el; });
+  for (const t of created) if (t.elementType === "BOARD") counts[t.id] = tally(t.id, deep);
+  shown.forEach(render);
+  setSel(created.map((e) => e.id));
+  Promise.all([...shown, ...deep].map((el) => send({ type: "ELEMENT_CREATE", ...el }))).then((rs) => {
+    if (rs.some((r) => r.status !== 200)) return resync();
+    pushHistory({ kind: "move", moves: created.map((el) => ({ id: el.id, from: trashOf(el.location), to: el.location })) });
+  });
+}
+let lastPtr = { x: 400, y: 200 };
+addEventListener("pointermove", (e) => { lastPtr = { x: e.clientX, y: e.clientY }; });
+let cutIds = new Set(); // cards waiting to be moved: shown faded until pasted or cancelled
+const markCut = (ids) => { cutIds = new Set(ids); document.querySelectorAll(".card").forEach((c) => c.classList.toggle("cut", cutIds.has(c.id))); };
+async function copy() {
+  const c = await snapshot();
+  if (!c) return;
+  markCut([]);
+  try { localStorage.clip = JSON.stringify(c); toast(`Copied ${plural(c.items.length, "item")}`); } catch { flash("That is too big to copy"); }
+}
+function cut() {
+  const ids = tops([...sel]).filter((id) => els[id]), at = {};
+  if (!ids.length) return;
+  for (const id of ids) {
+    const e = els[id], r = $(id)?.getBoundingClientRect(), p = e.location.section === "CANVAS" ? e.location.position : r ? toBoard(r.left, r.top) : { x: 0, y: 0 };
+    at[id] = { x: p.x ?? 0, y: p.y ?? 0 };
+  }
+  localStorage.clip = JSON.stringify({ cut: true, from: B, ids, at });
+  markCut(ids); toast(`Cut ${plural(ids.length, "item")}: paste on any board to move`);
+}
+async function pasteCut(c, pt) { // a move: same cards, new parent. Needs write access on both boards (the server checks).
+  const source = c.from === B ? els : await fetchAll(c.from).catch(() => ({}));
+  const items = c.ids.map((id) => source[id]).filter((e) => e && e.location.section !== "TRASH");
+  if (!items.length) return toast("Those items are gone");
+  const minx = Math.min(...items.map((e) => c.at[e.id]?.x ?? 0)), miny = Math.min(...items.map((e) => c.at[e.id]?.y ?? 0));
+  items.forEach((e) => { els[e.id] = e; });
+  localStorage.removeItem("clip"); markCut([]);
+  await moveMany(items.map((el) => ({ el, location: { parentId: B, section: "CANVAS", position: { x: Math.round(pt.x + (c.at[el.id]?.x ?? 0) - minx), y: Math.round(pt.y + (c.at[el.id]?.y ?? 0) - miny), score: 65536 } } })));
+  setSel(items.map((e) => e.id));
+}
+async function pasteClip() { // lands under the pointer
+  const c = readClip(), pt = toBoard(Math.max(lastPtr.x, 110), Math.max(lastPtr.y, 90));
+  if (c?.cut) await pasteCut(c, pt);
+  else if (c?.items?.length) place(c, pt);
+}
+async function duplicate() {
+  const c = await snapshot();
+  if (c) place(c, { x: Math.min(...c.items.map((i) => i.x)) + 24, y: Math.min(...c.items.map((i) => i.y)) + 24 });
+}
+function addMessage(el, m) { // idempotent: the sender gets its own message from the ack, everyone else from the broadcast
+  const list = (el.content.messages ??= []);
+  if (!list.some((x) => x.id === m.id)) { list.push(m); render(el); }
+}
+$("comment").onclick = () => add("COMMENT_THREAD", { messages: [] });
+
+// --- tools: line and freehand drawing ---
+function setTool(t) {
+  tool = t; document.body.dataset.tool = t ?? "";
+  $("line").classList.toggle("on", t === "line"); $("draw").classList.toggle("on", t === "draw");
+  $("drawbar").hidden = t !== "draw";
+  $("draft")?.remove();
+  if (t) setSel([]);
+  if (t === "draw") { // live layer inside the zoomed canvas, so strokes are in board coordinates from the start
+    const svg = document.createElementNS(NS, "svg"); svg.id = "draft"; $("canvas").append(svg);
+  }
+}
+$("line").onclick = () => setTool(tool === "line" ? null : "line");
+$("draw").onclick = () => setTool(tool === "draw" ? null : "draw");
+
+function startLine(e) { // press, drag, release: draws an arrow; an end that starts or lands on a card attaches to it; a tiny drag is a mis-click
+  const p = toBoard(e.clientX, e.clientY), at = { x: Math.round(p.x), y: Math.round(p.y) }, from = cardAt(e.clientX, e.clientY);
+  const el = newElement("LINE", { x1: 0, y1: 0, x2: 0, y2: 0, from, to: null, ...lineStyle }, at);
+  els[el.id] = el; render(el);
+  const move = (m) => {
+    const q = toBoard(m.clientX, m.clientY);
+    el.content.x2 = Math.round(q.x - at.x); el.content.y2 = Math.round(q.y - at.y);
+    el.content.to = cardAt(m.clientX, m.clientY, from); markTarget(el.content.to);
+    render(el);
+  };
+  const up = () => {
+    removeEventListener("pointermove", move); removeEventListener("pointerup", up);
+    markTarget(null); setTool(null);
+    if (Math.hypot(el.content.x2, el.content.y2) < 8) { delete els[el.id]; $(el.id)?.remove(); } else commit(el);
+  };
+  addEventListener("pointermove", move); addEventListener("pointerup", up);
+}
+
+// Every stroke is saved the moment the pen lifts, as its own drawing card, so it is one undo step. The tool stays on until Esc.
+const MAX_STROKE_POINTS = 4000; // keeps one stroke far inside the socket's 1 MB message limit
+function startStroke(e) {
+  const pts = [], path = document.createElementNS(NS, "path"), svg = $("draft");
+  if (!svg) return;
+  svg.append(path);
+  const add = (m) => {
+    const q = toBoard(m.clientX, m.clientY), x = +q.x.toFixed(1), y = +q.y.toFixed(1), last = pts.at(-1);
+    if (pts.length >= MAX_STROKE_POINTS || (last && Math.hypot(x - last[0], y - last[1]) < 1.5)) return; // close points add payload, not detail
+    pts.push([x, y]); path.setAttribute("d", pathD(pts));
+  };
+  add(e);
+  const up = () => {
+    removeEventListener("pointermove", add); removeEventListener("pointerup", up);
+    path.remove();
+    if (pts.length) saveStroke(pts);
+  };
+  addEventListener("pointermove", add); addEventListener("pointerup", up);
+}
+function saveStroke(pts) {
+  const pad = 6, xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  const minx = Math.min(...xs) - pad, miny = Math.min(...ys) - pad;
+  const w = Math.max(1, Math.round(Math.max(...xs) + pad - minx)), h = Math.max(1, Math.round(Math.max(...ys) + pad - miny));
+  // the card is as wide as the stroke (+ its padding), so it appears exactly where and how big it was drawn
+  const content = { w, h, width: w + 12, paths: [pts.map(([x, y]) => [+(x - minx).toFixed(1), +(y - miny).toFixed(1)])] };
+  commit(newElement("SKETCH", content, { x: Math.round(minx) - 6, y: Math.round(miny) - 6 }), { select: false });
+}
+$("note").onclick = () => add("CARD", { textContent: "" });
+$("todo").onclick = () => add("TASK_LIST", { title: "", tasks: [{ id: rid(), text: "", done: false }] });
+$("link").onclick = () => add("LINK", { url: "" });
+$("table").onclick = () => add("TABLE", { rows: [["", "", ""], ["", "", ""], ["", "", ""]], header: true });
+$("col").onclick = () => add("COLUMN", { title: "" });
+$("brd").onclick = () => add("BOARD", { title: "" });
+
+// images: picker, drag-and-drop from the desktop, or paste. The server checks type, real bytes and the 5 MB cap.
+const IMG_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+async function uploadImage(file, pos) {
+  if (!IMG_TYPES.includes(file.type)) return flash("Only PNG, JPEG, GIF or WebP images");
+  if (file.size > 5 * 1024 * 1024) return flash("That image is over 5 MB");
+  const r = await fetch("/api/media", { method: "POST", headers: { "x-user-id": uid, "content-type": file.type }, body: file }).catch(() => null);
+  if (!r?.ok) return flash("Upload failed");
+  add("IMAGE", { mediaId: (await r.json()).id, name: file.name }, pos);
+}
+$("image").onclick = () => $("file").click();
+$("file").onchange = (e) => { [...e.target.files].forEach((f) => uploadImage(f)); e.target.value = ""; };
+addEventListener("dragover", (e) => e.dataTransfer?.types.includes("Files") && e.preventDefault());
+addEventListener("drop", (e) => {
+  if (!e.dataTransfer?.files.length) return;
+  e.preventDefault();
+  const p = toBoard(e.clientX, e.clientY);
+  [...e.dataTransfer.files].forEach((f, i) => uploadImage(f, { x: Math.round(p.x + i * 24), y: Math.round(p.y + i * 24) }));
+});
+addEventListener("paste", (e) => {
+  const files = [...(e.clipboardData?.files ?? [])];
+  if (!files.length) { // not an image: paste our own copied cards, unless the paste is going into a text field
+    if (!e.target.closest?.("input, textarea, [contenteditable=true]")) { e.preventDefault(); pasteClip(); }
+    return;
+  }
+  e.preventDefault();
+  files.forEach((f) => uploadImage(f));
+});
+
+// Trash panel: lists what was deleted from this board; Restore moves it back to where it came from
+function showTrash(items) {
+  const p = $("trash");
+  const head = Object.assign(document.createElement("h3"), { textContent: "Trash" });
+  const empty = Object.assign(document.createElement("div"), { className: "empty", textContent: "Nothing here." });
+  p.replaceChildren(head, ...(items.length ? items.map((e) => {
+    const row = Object.assign(document.createElement("div"), { className: "row" });
+    const label = Object.assign(document.createElement("span"), { textContent: LABEL[e.elementType] + ": " + preview(e).slice(0, 28) });
+    const btn = Object.assign(document.createElement("button"), {
+      className: "btn", textContent: "Restore",
+      onclick: async () => {
+        els[e.id] = e;
+        await move(e, e.location.position.restoreLocation);
+        if (e.elementType === "COLUMN") await resync(); // its cards were not loaded while it was in the trash
+        row.remove();
+        if (!p.querySelector(".row")) p.append(empty);
+      },
+    });
+    row.append(label, btn);
+    return row;
+  }) : [empty]));
+  p.style.display = "block";
+}
+async function openTrash() {
+  showTrash(Object.values(await fetchBoards([B + "-trash"]).catch(() => ({}))).filter((e) => e.location.section === "TRASH" && KIND[e.elementType]));
+}
+$("trashBtn").onclick = () => ($("trash").style.display === "block" ? ($("trash").style.display = "none") : openTrash());
+
+// --- search: dims every card that does not match; Enter steps through the matches (Shift+Enter goes back) ---
+const searchText = (e) => [e.content.title, e.content.textContent, e.content.url, e.content.previewTitle, e.content.previewDesc, e.content.name, ...(e.content.tasks ?? []).map((t) => t.text), ...tableRows(e.content).flat(), ...(e.content.messages ?? []).map((m) => m.text)].filter(Boolean).join(" ").toLowerCase();
+let hits = [], hitAt = -1, searchTimer;
+function runSearch() {
+  const query = $("q").value.trim().toLowerCase();
+  document.body.classList.toggle("searching", !!query);
+  hits = query ? Object.values(els).filter((e) => KIND[e.elementType] && e.location.section !== "TRASH" && e.id !== B && searchText(e).includes(query)).map((e) => e.id) : [];
+  document.querySelectorAll(".card").forEach((c) => c.classList.toggle("found", hits.includes(c.id)));
+  $("qcount").textContent = query ? (hits.length === 1 ? "1 match" : `${hits.length} matches`) : "";
+}
+function centerOn(id) { // pan (keeping the zoom) so a card sits in the middle of the screen, and select it
+  const d = $(id);
+  if (!d) return;
+  const k = (d.classList.contains("line") ? d.querySelector("svg") : d).getBoundingClientRect(), c = toBoard(k.left + k.width / 2, k.top + k.height / 2);
+  view.x = innerWidth / 2 - c.x * view.z; view.y = innerHeight / 2 - c.y * view.z; applyView(); setSel([id]);
+}
+$("q").oninput = () => { hitAt = -1; runSearch(); };
+$("q").onkeydown = (e) => {
+  if (e.key === "Escape") { $("q").value = ""; runSearch(); $("q").blur(); }
+  else if (e.key === "Enter" && hits.length) { e.preventDefault(); hitAt = (hitAt + (e.shiftKey ? hits.length - 1 : 1)) % hits.length; centerOn(hits[hitAt]); }
+};
+
+// remote actions (only rooms we joined are delivered)
+s.on("action", (a) => {
+  if (a.type === "ELEMENT_CREATE") { const { type, channels, ...el } = a; els[el.id] = el; render(el); }
+  if (a.type === "COMMENT_ADD" && els[a.id]) addMessage(els[a.id], a.message);
+  if (a.type === "ELEMENT_UPDATE") for (const u of a.updates) { const el = els[u.id]; if (!el) continue; Object.assign(el.content, u.changes); el.meta.versionId = u.meta.versionId; render(el); }
+  if (a.type === "ELEMENT_MOVE_MULTI") for (const m of a.moves) { const el = els[m.id]; if (el) { el.location = m.location; render(el); } }
+});
+
+const fetchBoards = async (ids) => {
+  const r = await fetch("/api/boards?ids=" + ids.join(","), { headers: { "x-user-id": uid } });
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  const body = await r.json();
+  Object.assign(counts, body.counts); // tiles show what is inside their board
+  return body.elements;
+};
+
+async function load() {
+  const elements = await fetchBoards([B]);
+  const cols = Object.values(elements).filter((e) => e.elementType === "COLUMN" && e.location.parentId === B).map((e) => e.id);
+  if (cols.length) Object.assign(elements, await fetchBoards(cols)); // column children live under the column's id
+  els = elements;
+  Object.values(els).sort((a, b) => (b.elementType === "COLUMN") - (a.elementType === "COLUMN")).forEach(render); // columns first
+  document.querySelectorAll(".card").forEach((d) => !els[d.id] && d.remove());
+  relayout(); // lines can render before the cards they attach to
+  applyBg();
+}
+
+async function crumbs() {
+  const chain = []; let cur = B;
+  while (cur !== HOME) { const e = (await fetchBoards([cur]))[cur]; if (!e) break; chain.unshift(e); cur = e.location.parentId; }
+  const links = [[HOME, "Home"], ...chain.map((e) => [e.id, e.content.title || DEFAULT.BOARD])];
+  $("crumbs").replaceChildren(...links.flatMap(([id, t], i) => [...(i ? [" / "] : []), Object.assign(document.createElement("a"), { href: "#" + id, textContent: t })]));
+}
+
+async function enter() {
+  HOME ??= (await (await fetch("/api/users/me/app-init", { headers: { "x-user-id": uid } })).json()).homeBoardId;
+  const next = location.hash.slice(1) || HOME;
+  const ack = await new Promise((r) => s.emit("update-channels", { joined: [next + "-LIVE"], left: joined ? [joined] : [] }, r));
+  if (next !== B) {
+    $("canvas").innerHTML = ""; els = {}; sel = new Set(); counts = {}; history.undo = []; history.redo = []; syncHistory();
+    view = loadView(next); applyView(false); // not saved: B is still the old board here, and a pending save for it must not be replaced
+    $("q").value = ""; runSearch(); $("bgpop").hidden = true;
+  } // a reconnect keeps the canvas and the view; load() below reconciles it with the server
+  B = next;
+  if (ack.status !== 200) { $("canvas").innerHTML = ""; els = {}; status("bad", `No access to ${next} as ${uid}`); return; }
+  joined = next + "-LIVE";
+  await load(); await crumbs();
+  $("trash").style.display = "none";
+  status("live", "Live as " + uid);
+}
+s.on("connect", async () => { joined = null; await enter(); });
+s.on("disconnect", () => status("wait", "Offline"));
+onhashchange = enter;
+window.__els = () => els; // test hook
+window.__view = () => view;
+</script>
+<script src="/portable.js"></script>

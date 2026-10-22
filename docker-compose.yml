@@ -1,0 +1,17 @@
+# Portainer: Stacks > Add stack > Repository, compose path docker-compose.yml. Portainer builds the image from the Dockerfile.
+services:
+  boardsync:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      # extra allowed browser origins when a proxy changes the Host header, e.g. https://boards.example.com
+      ORIGINS: "${ORIGINS:-}"
+      # set to 1 when the site is served over HTTPS (adds the HSTS header)
+      HTTPS: "${HTTPS:-0}"
+    volumes:
+      - boardsync-data:/data
+
+volumes:
+  boardsync-data:
