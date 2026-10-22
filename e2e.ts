@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { deflateSync } from "node:zlib";
 import { createServer } from "./server.ts";
 
 const PORT = 3997, URL = `http://localhost:${PORT}`;
@@ -67,13 +68,13 @@ await test("drag a note with the mouse; a second tab of the same user sees it mo
   await add(page, "note", "drag me");
   const other = await ctx.newPage();
   await other.goto(`${URL}/?u=${user}`); await other.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live");
-  const a = mid(await box(page, ".note"));
+  const start = await box(page, ".note"), a = mid(start);
   await drag(page, a, { x: a.x + 240, y: a.y + 160 });
   await settle(page, 900);
   const moved = await box(page, ".note"), there = await box(other, ".note");
-  within(moved.x, 110 + 240, 4, "x on this tab"); within(there.x, moved.x, 2, "x on the other tab"); within(there.y, moved.y, 2, "y on the other tab");
+  within(moved.x, start.x + 240, 4, "x on this tab"); within(there.x, moved.x, 2, "x on the other tab"); within(there.y, moved.y, 2, "y on the other tab");
   const s = (await stored(page)).find((e) => e.elementType === "CARD");
-  within(s.location.position.x, 350, 4, "x stored on the server");
+  within(s.location.position.x, start.x + 240, 4, "x stored on the server (the view is not panned: screen x is board x)");
 });
 
 await test("column: drop a note in, drag it back out", async ({ page }) => {
@@ -114,13 +115,30 @@ await test("drag a note onto Trash, then Restore it from the panel", async ({ pa
   assert.equal(await page.locator("#canvas > .note").count(), 1);
 });
 
+await test("zoom: one wheel notch is one 15% step whatever the wheel reports; pinch stays proportional; steps return to 100%", async ({ page }) => {
+  await add(page, "note", "zoom"); await page.mouse.move(700, 400);
+  const z = () => page.evaluate(() => (window as any).__view().z);
+  const wheel = async (dy: number) => { await page.keyboard.down("Control"); await page.mouse.wheel(0, dy); await page.keyboard.up("Control"); await settle(page, 150); };
+  within(await z(), 1, 0, "starts at 100%");
+  for (const dy of [-100, -120, -53, -400]) { const before = await z(); await wheel(dy); within((await z()) / before, 1.15, 0.002, `a notch of ${dy} is one step`); }
+  for (let i = 0; i < 4; i++) await wheel(100);
+  assert.equal(await z(), 1, "four steps in and four out come back to exactly 100%");
+  await wheel(100); within(await z(), 1 / 1.15, 0.002, "a notch out is a step out");
+  await wheel(100); await wheel(-100); await wheel(-100);
+  const before = await z(); await wheel(-5);
+  const ratio = (await z()) / before; assert.ok(ratio > 1.03 && ratio < 1.07, `a small pinch-like delta zooms a little, not a whole step (x${ratio.toFixed(3)})`);
+  for (let i = 0; i < 20; i++) await wheel(-100);
+  assert.equal(await z(), 2, "zoom stops at 200%");
+  await page.click("#zreset"); await page.click("#zin"); within(await z(), 1.15, 0.001, "the + button uses the same step");
+});
+
 await test("zoom with ctrl+wheel and pan with the wheel; the view is remembered after a reload", async ({ page }) => {
   await add(page, "note", "zoom");
   await page.mouse.move(700, 400);
   await page.keyboard.down("Control"); await page.mouse.wheel(0, -200); await page.keyboard.up("Control");
   await settle(page, 300);
   const z = await page.evaluate(() => (window as any).__view().z);
-  assert.ok(z > 1.2, "zoomed in, z=" + z);
+  within(z, 1.15, 0.001, "one wheel notch (even a big one, -200) is exactly one 15% step");
   const y0 = await page.evaluate(() => (window as any).__view().y);
   await page.mouse.wheel(0, 120); await settle(page, 300);
   within(y0 - (await page.evaluate(() => (window as any).__view().y)), 120, 2, "panned by the wheel delta");
@@ -221,7 +239,7 @@ await test("export a board file and import it back as a new board", async ({ pag
   await page.waitForFunction(() => !(document.getElementById("impgo") as HTMLButtonElement).disabled);
   await page.click("#impgo");
   await page.waitForFunction(() => /Imported/.test(document.getElementById("impinfo")!.textContent!), null, { timeout: 15000 });
-  await page.click("#impno"); await settle(page, 600);
+  await page.waitForSelector("#impdlg", { state: "hidden" }); // it closes by itself when the import had no warnings await settle(page, 600);
   assert.equal(await page.locator("#canvas > .board").count(), 1, "the import is a new board tile");
   await page.locator("#canvas > .board").dblclick(); await settle(page, 1500);
   assert.equal(await page.locator("#canvas > .note").count(), 1);
@@ -236,12 +254,60 @@ await test("import a Milanote-style Markdown file", async ({ page }) => {
   await page.waitForFunction(() => /2 boards/.test(document.getElementById("impinfo")!.textContent!));
   await page.click("#impgo");
   await page.waitForFunction(() => /Imported/.test(document.getElementById("impinfo")!.textContent!), null, { timeout: 15000 });
-  await page.click("#impno"); await settle(page, 500);
+  await page.waitForSelector("#impdlg", { state: "hidden" }); // it closes by itself when the import had no warnings await settle(page, 500);
   await page.locator("#canvas > .board").dblclick(); await settle(page, 1500);
   assert.equal(await page.locator("#canvas > .note").count(), 1, "the note");
   assert.equal(await page.locator("#canvas > .todo .task").count(), 2, "the two tasks");
   assert.equal(await page.locator("#canvas > .column").count(), 1, "the ## heading became a column");
   assert.equal(await page.locator("#canvas > .board").count(), 1, "the second # heading became a sub-board");
+  rmSync(dir, { recursive: true });
+});
+
+await test("import a real Milanote export: pictures are downloaded, captions, bold, lists, links, empty to-do rows", async ({ page }) => {
+  const dir = mkdtempSync(join(tmpdir(), "e2e-md-")), file = join(dir, "Domek.md"), pic = "http://127.0.0.1:3994/pic.png";
+  writeFileSync(file, [
+    "# Domek", "", "## Ideas", "",
+    `![**Cap one**](${pic})`, "",
+    `![Photo by [Ann](https://example.com/ann)](${pic})`, "",
+    `![Image from Domek](${pic})`, "",
+    "- Longan juice", "",
+    "**bold** and a [link](https://example.com/x)", "",
+    "[A shop - Link](http://127.0.0.1:3994/one)", "", "250 pln", "",
+    "[Shelf unit](http://127.0.0.1:3994/one)", "", "Description from the export", "", "A separate note", "", "### **Inside heading**", "",
+    "## Checklists", "", "- [ ] a", "- [x] b", "- [ ] Walka z air china- noclegi w Pekinie i jeszcze dużo więcej tekstu żeby zawinąć", "- [ ]", "## Overview", "", "## **Daty**", "", "Table element string placeholder", "", "### **Transport Details**", "", "## Last", "", "in last", "",
+  ].join("\n"));
+  await page.click("#impBtn"); await page.setInputFiles("#impfile", file);
+  await page.waitForFunction(() => /1 board/.test(document.getElementById("impinfo")!.textContent!));
+  await page.click("#impgo");
+  await page.waitForFunction(() => /Imported/.test(document.getElementById("impinfo")!.textContent!), null, { timeout: 20000 });
+  const info = await page.locator("#impinfo").innerText();
+  assert.doesNotMatch(info, /could not be downloaded/, "all three pictures came through");
+  await page.waitForSelector("#impdlg", { state: "hidden" }); // it closes by itself when the import had no warnings await settle(page, 500);
+  await page.locator("#canvas > .board").dblclick(); await settle(page, 1800);
+  const cols = page.locator("#canvas > .column");
+  assert.deepEqual(await cols.locator(".title").allInnerTexts().then((t) => t.filter(Boolean).slice(0, 1)), ["Ideas"], "no ** left in the column name");
+  const imgs = cols.first().locator(".kids .image");
+  assert.equal(await imgs.count(), 3, "three real picture cards, not links");
+  assert.deepEqual(await imgs.locator(".title").allInnerTexts(), ["Cap one", "Photo by Ann", ""], "captions cleaned; Milanote's default caption dropped");
+  assert.ok(await imgs.first().locator("img").evaluate((i: HTMLImageElement) => i.src.includes("/api/media/") && i.naturalWidth > 0), "the picture is stored here");
+  assert.equal(await cols.first().locator(".kids .link").count(), 2);
+  assert.equal(await cols.first().locator(".kids .link .ptitle").first().innerText(), "A Real Page", "a bare link takes the site's title");
+  assert.equal(await cols.first().locator(".kids .link .ptitle").nth(1).innerText(), "Shelf unit", "the title from the export wins");
+  assert.equal(await cols.first().locator(".kids .link .pdesc").nth(1).innerText(), "Description from the export", "the paragraph after a titled link is its description");
+  assert.deepEqual(await cols.first().locator(".kids .note .text").allInnerTexts(), ["Longan juice", "bold and a link", "250 pln", "A separate note", "Inside heading"], "no duplicate description note; after a bare link the next paragraph stays a note");
+  assert.deepEqual(await cols.first().locator(".kids .note li").allInnerTexts(), ["Longan juice"], "a bullet became a list");
+  assert.equal(await cols.first().locator(".kids .note b").innerText(), "bold");
+  assert.equal(await cols.first().locator(".kids .note a").getAttribute("href"), "https://example.com/x");
+  assert.equal(await cols.nth(1).locator(".task").count(), 3, "the empty to-do row is dropped");
+  const long = cols.nth(1).locator(".task textarea").nth(2);
+  assert.ok(await long.evaluate((t: HTMLTextAreaElement) => t.clientHeight > 30 && t.scrollWidth <= t.clientWidth + 1), "a long task wraps onto more lines instead of running out of the card");
+  const colW = (await box(page, "#canvas > .column >> nth=0")).width, head = await box(page, "#canvas > .column >> nth=0 >> .kids .note.heading");
+  assert.ok(head.width <= colW, `a heading inside a column (${head.width}px) fits it (${colW}px)`);
+  assert.equal(await cols.count(), 4, "Ideas, Checklists, Overview, Last: the bold ## headings are not columns");
+  assert.equal(await cols.nth(2).locator(".kids > .card").count(), 0, "nothing was pushed into Overview by what follows it");
+  assert.deepEqual(await page.locator("#canvas > .note.heading .text").allInnerTexts(), ["Daty", "Transport Details"], "bold headings are notes on the board");
+  assert.equal(await page.locator("#canvas > .sheet").count(), 1, "the table placeholder follows them on the board, as an empty table");
+  assert.deepEqual(await cols.nth(3).locator(".kids .note .text").allInnerTexts(), ["in last"], "the next real column starts again");
   rmSync(dir, { recursive: true });
 });
 
@@ -336,10 +402,114 @@ await test("table: a Markdown table imports as a table card", async ({ page }) =
   await page.waitForFunction(() => /1 board/.test(document.getElementById("impinfo")!.textContent!));
   await page.click("#impgo");
   await page.waitForFunction(() => /Imported/.test(document.getElementById("impinfo")!.textContent!), null, { timeout: 15000 });
-  await page.click("#impno"); await settle(page, 500);
+  await page.waitForSelector("#impdlg", { state: "hidden" }); // it closes by itself when the import had no warnings await settle(page, 500);
   await page.locator("#canvas > .board").dblclick(); await settle(page, 1500);
   assert.deepEqual((await stored(page)).find((e) => e.elementType === "TABLE").content.rows, [["a", "b"], ["1", "2 | 3"]]);
   rmSync(dir, { recursive: true });
+});
+
+await test("link card: your own picture when the site gives none (button, then paste), undoable", async ({ page }) => {
+  const dir = mkdtempSync(join(tmpdir(), "e2e-pic-")), file = join(dir, "p.png");
+  writeFileSync(file, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
+  await page.click("#link"); await page.keyboard.type("http://169.254.169.254/shop"); await page.keyboard.press("Enter"); await settle(page, 1200);
+  assert.equal(await page.locator(".link .thumb").isHidden(), true, "no picture from the site");
+  await page.locator(".link .pic").click({ trial: false }).catch(() => {});
+  await page.setInputFiles("#file", file);
+  await page.waitForFunction(() => { const i = document.querySelector<HTMLImageElement>(".link .thumb"); return !!i && !i.hidden && i.naturalWidth > 0; }, null, { timeout: 5000 });
+  assert.match((await stored(page)).find((e) => e.elementType === "LINK").content.previewImage, /^[0-9a-f-]{36}$/);
+  assert.equal((await stored(page)).filter((e) => e.elementType === "IMAGE").length, 0, "it did not create a separate image card");
+  await page.keyboard.press("Control+z"); await settle(page, 800);
+  assert.equal(await page.locator(".link .thumb").isHidden(), true, "undo removes the picture");
+  rmSync(dir, { recursive: true });
+});
+
+// a tiny PNG made here: the left half red, the right half blue (so a palette has two clear colours)
+const crc = (b: Buffer) => { let c, t = -1; for (const x of b) { c = (t ^ x) & 255; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t = (t >>> 8) ^ c; } return (t ^ -1) >>> 0; };
+function twoColourPng(): Buffer {
+  const chunk = (type: string, data: Buffer) => { const body = Buffer.concat([Buffer.from(type), data]), len = Buffer.alloc(4), sum = Buffer.alloc(4); len.writeUInt32BE(data.length); sum.writeUInt32BE(crc(body)); return Buffer.concat([len, body, sum]); };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(8, 0); ihdr.writeUInt32BE(8, 4); ihdr[8] = 8; ihdr[9] = 2; // 8x8, 8-bit RGB
+  const rows = Buffer.concat(Array.from({ length: 8 }, () => Buffer.concat([Buffer.from([0]), ...Array.from({ length: 8 }, (_, x) => Buffer.from(x < 4 ? [255, 0, 0] : [0, 0, 255]))])));
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(rows)), chunk("IEND", Buffer.alloc(0))]);
+}
+
+await test("colour card: pick a colour, it is stored; colours from a picture make cards", async ({ page }) => {
+  await page.click("#swatch");
+  assert.equal(await page.locator("#picker").isVisible(), true, "a new colour card opens the picker");
+  const w = await box(page, "#wheel");
+  await page.mouse.click(w.x + 3, w.y + w.height / 2); await page.click("#pok"); await settle(page, 700);
+  const hex = await page.locator(".swatch .hex").innerText();
+  assert.match(hex, /^#[0-9a-f]{6}$/); assert.ok((await stored(page)).some((e) => e.elementType === "SWATCH" && e.content.color === hex), "stored");
+  const dir = mkdtempSync(join(tmpdir(), "e2e-pal-")), file = join(dir, "two.png"); writeFileSync(file, twoColourPng());
+  await page.setInputFiles("#file", file);
+  await page.waitForSelector(".image img"); await page.waitForFunction(() => (document.querySelector(".image img") as HTMLImageElement).complete);
+  await page.locator(".image").hover(); await page.click("#imgPal"); await settle(page, 900);
+  const made = (await stored(page)).filter((e) => e.elementType === "SWATCH").map((e) => e.content.color);
+  assert.ok(made.includes("#0000ff") && made.includes("#ff0000"), "the picture's red and blue became colour cards, got " + made);
+  rmSync(dir, { recursive: true });
+});
+
+await test("image: caption, crop (original kept) and numbered pins", async ({ page }) => {
+  const dir = mkdtempSync(join(tmpdir(), "e2e-img-")), file = join(dir, "two.png"); writeFileSync(file, twoColourPng());
+  await page.setInputFiles("#file", file);
+  await page.waitForFunction(() => { const i = document.querySelector<HTMLImageElement>(".image img"); return !!i && i.complete && i.naturalWidth > 0; });
+  await page.locator(".image .frame").dblclick(); await page.keyboard.type("Sunset"); await page.keyboard.press("Enter"); await settle(page, 700);
+  assert.equal((await stored(page)).find((e) => e.elementType === "IMAGE").content.caption, "Sunset");
+  assert.equal(await page.locator(".image .title").innerText(), "Sunset");
+  // crop: drag the bottom-right handle inwards, then Done
+  const before = await box(page, ".image .frame");
+  await page.click("#imgCrop");
+  const h = mid(await box(page, ".image .crop .br"));
+  await drag(page, h, { x: h.x - before.width * 0.3, y: h.y - before.height * 0.3 });
+  await page.click("#imgCrop"); await settle(page, 800);
+  const k = (await stored(page)).find((e) => e.elementType === "IMAGE").content.crop;
+  assert.ok(k && k.w < 0.6 && k.h < 0.6 && k.x === 0.1, "a smaller rectangle was saved, got " + JSON.stringify(k));
+  assert.ok(parseFloat(await page.locator(".image .frame img").evaluate((i: HTMLElement) => i.style.width)) > 150, "the picture is magnified so the card shows only the cropped part");
+  assert.ok((await stored(page)).find((e) => e.elementType === "IMAGE").content.mediaId, "the original picture is still there");
+  // pin: Pin button, click the picture, answer the prompt
+  page.once("dialog", (d) => d.accept("look at this"));
+  await page.click("#imgPin"); const f = mid(await box(page, ".image .frame")); await page.mouse.click(f.x, f.y); await settle(page, 800);
+  const pins = (await stored(page)).find((e) => e.elementType === "IMAGE").content.pins;
+  assert.equal(pins.length, 1); assert.equal(pins[0].text, "look at this");
+  assert.ok(pins[0].x > 0.1 && pins[0].x < 0.7, "pin stored in the original's coordinates, got " + pins[0].x);
+  assert.equal(await page.locator(".image .pin").innerText(), "1");
+  // an empty answer removes the pin
+  page.once("dialog", (d) => d.accept("")); await page.click(".image .pin"); await settle(page, 700);
+  assert.equal((await stored(page)).find((e) => e.elementType === "IMAGE").content.pins.length, 0);
+  rmSync(dir, { recursive: true });
+});
+
+await test("right-click menus: new card at the pointer, lock position, order, trash", async ({ page }) => {
+  await page.mouse.click(700, 400, { button: "right" });
+  assert.equal(await page.locator("#cmenu").isVisible(), true, "canvas menu opens");
+  await page.locator("#cmenu button", { hasText: "New Note" }).click(); await page.keyboard.type("made by menu"); await page.keyboard.press("Escape"); await settle(page, 500);
+  const n = await box(page, ".note"); within(n.x, 700, 12, "the note lands where you right-clicked"); within(n.y, 400, 12, "and at the same height");
+  await page.locator(".note").click({ button: "right" });
+  assert.match(await page.locator("#cmenu .meta").innerText(), /^Created by you/);
+  await page.locator("#cmenu button", { hasText: "Lock Position" }).click(); await settle(page, 600);
+  assert.equal((await stored(page)).find((e) => e.elementType === "CARD").content.locked, true);
+  const a = mid(await box(page, ".note")); await drag(page, a, { x: a.x + 150, y: a.y + 90 }); await settle(page, 600);
+  within((await box(page, ".note")).x, n.x, 2, "a locked card does not move");
+  await page.locator(".note").click({ button: "right" }); await page.locator("#cmenu button", { hasText: "Unlock Position" }).click(); await settle(page, 400);
+  await page.locator(".note").click({ button: "right" }); await page.locator("#cmenu button", { hasText: "Bring to Front" }).click(); await settle(page, 600);
+  assert.ok((await stored(page)).find((e) => e.elementType === "CARD").content.z >= 1, "z-order saved");
+  await page.locator(".note").click({ button: "right" }); await page.locator("#cmenu button", { hasText: "Move to Trash" }).click(); await settle(page, 600);
+  assert.equal(await page.locator("#canvas > .note").count(), 0);
+});
+
+await test("heading card exports as ### and imports back as a heading; presentation mode hides the chrome", async ({ page }) => {
+  await page.click("#heading"); await page.keyboard.type("Big title"); await page.keyboard.press("Escape"); await settle(page, 500);
+  assert.equal(await page.locator(".note.heading").count(), 1);
+  assert.equal(await page.locator(".note.heading .text").evaluate((e) => parseFloat(getComputedStyle(e).fontSize)) >= 26, true, "set large");
+  await page.click("#expBtn");
+  const [dl] = await Promise.all([page.waitForEvent("download"), page.click('#expop [data-x="md"]')]);
+  const dir = mkdtempSync(join(tmpdir(), "e2e-h-")), file = join(dir, "h.md"); await dl.saveAs(file);
+  assert.match((await import("node:fs")).readFileSync(file, "utf8"), /^### Big title$/m);
+  rmSync(dir, { recursive: true });
+  await page.click("#presentBtn");
+  assert.equal(await page.locator("#tools").isVisible(), false, "toolbar hidden"); assert.equal(await page.locator("#top").isVisible(), false);
+  assert.equal(await page.locator(".note.heading").isVisible(), true, "the cards stay");
+  await page.keyboard.press("Escape");
+  assert.equal(await page.locator("#tools").isVisible(), true, "Esc brings the toolbar back");
 });
 
 await test("rich note: hostile HTML from another client is neutralised", async ({ page }) => {
@@ -399,6 +569,324 @@ await test("copy a whole board and paste it: its contents come along", async ({ 
   await page.locator("#canvas > .board.selected").dblclick(); await settle(page, 1500);
   assert.equal(await page.locator("#canvas > .note").count(), 1);
   assert.equal(await page.locator("#canvas > .todo").count(), 1);
+});
+
+const posOf = async (page: Page) => (await stored(page)).filter((e) => e.elementType === "CARD").map((e) => ({ x: e.location.position.x, y: e.location.position.y, z: e.content.z })).sort((a, b) => a.x - b.x || a.y - b.y);
+
+await test("keyboard: arrows nudge 1px (Shift: 10px) as one undo step; Ctrl+Shift+Up/Down reorders", async ({ page }) => {
+  await add(page, "note", "one"); await settle(page, 300);
+  const [a0] = await posOf(page);
+  await page.locator(".note").first().click();
+  for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Shift+ArrowDown"); await settle(page, 900);
+  const [a1] = await posOf(page);
+  assert.equal(a1.x, a0.x + 3, "three plain presses move 3px"); assert.equal(a1.y, a0.y + 10, "Shift moves 10px");
+  await page.keyboard.press("Control+z"); await settle(page, 700);
+  const [a2] = await posOf(page);
+  assert.deepEqual({ x: a2.x, y: a2.y }, { x: a0.x, y: a0.y }, "the whole burst undoes in one step");
+  // two overlapping notes: send the first one to the back and the second to the front by keyboard
+  await page.mouse.click(1000, 600); await page.keyboard.press("Escape");
+  await add(page, "note", "two");
+  const notes = page.locator(".note");
+  assert.equal(await notes.count(), 2);
+  await notes.nth(0).click(); await page.keyboard.press("Control+Shift+ArrowUp"); await settle(page, 700);
+  const z0 = (await model(page)).find((e) => e.content.textContent === "one").content.z;
+  await notes.nth(0).click(); await page.keyboard.press("Control+Shift+ArrowDown"); await settle(page, 700);
+  const z1 = (await model(page)).find((e) => e.content.textContent === "one").content.z;
+  assert.ok(z0 > z1, `front (${z0}) is above back (${z1})`);
+});
+
+await test("keyboard: Alt-drag copies a card, the original stays", async ({ page }) => {
+  await add(page, "note", "orig"); await settle(page, 300);
+  const b = await box(page, ".note"), from = mid(b);
+  await page.keyboard.down("Alt"); await drag(page, from, { x: from.x + 260, y: from.y + 120 }); await page.keyboard.up("Alt"); await settle(page, 1000);
+  const ps = await posOf(page);
+  assert.equal(ps.length, 2, "an original and a copy");
+  within(ps[1].x - ps[0].x, 260, 6, "the copy lands where it was dropped"); within(ps[1].y - ps[0].y, 120, 6, "...and down");
+  assert.deepEqual((await model(page)).filter((e) => e.elementType === "CARD").map((e) => e.content.textContent), ["orig", "orig"]);
+  await page.keyboard.press("Control+z"); await settle(page, 700);
+  assert.equal((await posOf(page)).length, 1, "undo removes the copy");
+});
+
+await test("rich note: markdown shortcuts, highlight, quote, code, link, centre, and Markdown export", async ({ page }) => {
+  await page.click("#note");
+  await page.keyboard.type("# Title"); await page.keyboard.press("Enter");
+  await page.keyboard.type(". apple"); await page.keyboard.press("Enter"); await page.keyboard.press("Enter");
+  await page.keyboard.type("1. first"); await page.keyboard.press("Enter"); await page.keyboard.press("Enter");
+  await page.keyboard.type("> wise words"); await page.keyboard.press("Enter"); await page.keyboard.press("Enter");
+  await page.keyboard.type("hot take"); await page.keyboard.press("Shift+Home"); await page.keyboard.press("Control+j");
+  await page.keyboard.press("End"); await page.keyboard.press("Enter");
+  await page.keyboard.type("site"); await page.keyboard.press("Shift+Home");
+  page.once("dialog", (d) => d.accept("https://example.com/"));
+  await page.keyboard.press("Control+k");
+  await page.keyboard.press("End"); await page.keyboard.press("Enter");
+  await page.keyboard.type("middle"); await page.click('#fmt [data-c="center"]');
+  await page.keyboard.press("Enter"); await page.click('#fmt [data-c="code"]'); await page.keyboard.type("let x = 1");
+  await page.keyboard.press("Escape"); await settle(page, 800);
+  const t = page.locator(".note .text");
+  assert.equal(await t.locator("h3").innerText(), "Title");
+  assert.deepEqual(await t.locator("ul li").allInnerTexts(), ["apple"]);
+  assert.deepEqual(await t.locator("ol li").allInnerTexts(), ["first"]);
+  assert.equal(await t.locator("blockquote").innerText(), "wise words");
+  assert.equal(await t.locator("mark").innerText(), "hot take");
+  assert.equal(await t.locator("a").getAttribute("href"), "https://example.com/");
+  assert.equal(await t.locator("pre").innerText(), "let x = 1");
+  assert.equal(await t.locator('[align="center"]').count() > 0, true, "centred line");
+  const s = (await stored(page)).find((e) => e.elementType === "CARD");
+  assert.match(s.content.html, /<mark>hot take<\/mark>/); assert.doesNotMatch(s.content.html, /style=|<span/);
+  await page.reload(); await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live"); await settle(page, 500);
+  assert.equal(await page.locator(".note .text mark").innerText(), "hot take", "still formatted after a reload");
+  await page.click("#expBtn");
+  const [dl] = await Promise.all([page.waitForEvent("download"), page.click('#expop [data-x="md"]')]);
+  const dir = mkdtempSync(join(tmpdir(), "e2e-md-")), file = join(dir, "n.md"); await dl.saveAs(file);
+  const md = (await import("node:fs")).readFileSync(file, "utf8");
+  assert.match(md, /### Title/); assert.match(md, /- apple/); assert.match(md, /1\. first/); assert.match(md, /> wise words/);
+  assert.match(md, /\[site\]\(https:\/\/example\.com\/\)/); assert.match(md, /```\nlet x = 1\n```/);
+  rmSync(dir, { recursive: true });
+});
+
+await test("image toolbar: download the original, colour strip, rotate (crop and pins turn with it), undo", async ({ page }) => {
+  const dir = mkdtempSync(join(tmpdir(), "e2e-img-")), file = join(dir, "two.png"), bytes = twoColourPng(); writeFileSync(file, bytes);
+  await page.setInputFiles("#file", file);
+  const loaded = () => page.waitForFunction(() => { const i = document.querySelector<HTMLImageElement>(".image img"); return !!i && i.complete && i.naturalWidth > 0; });
+  await loaded();
+  const img = () => page.locator(".image img").evaluate((i: HTMLImageElement) => [i.naturalWidth, i.naturalHeight]);
+  const rec = async () => (await stored(page)).find((e) => e.elementType === "IMAGE").content;
+  // download: the stored file, byte for byte, under its own name
+  await page.locator(".image").click({ button: "right" });
+  const [dl] = await Promise.all([page.waitForEvent("download"), page.locator("#cmenu button", { hasText: "Download Original" }).click()]);
+  assert.equal(dl.suggestedFilename(), "two.png");
+  const saved = join(dir, "saved.png"); await dl.saveAs(saved);
+  assert.equal((await import("node:fs")).readFileSync(saved).length, bytes.length, "the download is the stored original");
+  // colour strip: pick a colour with the image selected
+  await page.locator(".image .frame").click(); await settle(page, 300);
+  assert.equal(await page.locator("#colorbar").isVisible(), true, "the colour bar is offered for a picture");
+  await page.locator('#colorbar [data-val="teal"]').click(); await settle(page, 600);
+  assert.equal((await rec()).color, "teal");
+  assert.equal(await page.locator(".image").evaluate((d) => getComputedStyle(d, "::before").height), "8px", "a strip along the top edge");
+  const [card, tint] = await page.evaluate(() => { const t = document.createElement("div"); t.style.background = "var(--tint-teal)"; document.body.append(t); const c = getComputedStyle(t).backgroundColor; t.remove(); return [getComputedStyle(document.querySelector(".image")!).backgroundColor, c]; });
+  assert.notEqual(card, tint, "...and not a fill: the card itself keeps its normal background");
+  // rotate, with a crop and a pin that must turn with the picture
+  const before = await rec(), [w0, h0] = await img();
+  await page.evaluate(() => { const el = Object.values((window as any).__els() as any).find((e: any) => e.elementType === "IMAGE"); return (0, eval)("update")(el, { crop: { x: 0.1, y: 0.2, w: 0.5, h: 0.3 }, pins: [{ x: 0.2, y: 0.4, text: "p" }] }); });
+  await settle(page, 600);
+  await page.locator(".image").hover(); await page.click("#imgRotate"); await settle(page, 1200); await loaded();
+  const after = await rec(), [w1, h1] = await img();
+  assert.notEqual(after.mediaId, before.mediaId, "a new, turned picture");
+  assert.deepEqual([w1, h1], [h0, w0], "width and height swapped");
+  within(after.crop.x, 0.5, 1e-6, "crop x"); within(after.crop.y, 0.1, 1e-6, "crop y"); within(after.crop.w, 0.3, 1e-6, "crop w"); within(after.crop.h, 0.5, 1e-6, "crop h");
+  within(after.pins[0].x, 0.6, 1e-6, "pin x"); within(after.pins[0].y, 0.2, 1e-6, "pin y"); assert.equal(after.pins[0].text, "p");
+  // undo restores the old picture, crop and pin together
+  await page.keyboard.press("Control+z"); await settle(page, 900);
+  const undone = await rec();
+  assert.equal(undone.mediaId, before.mediaId); within(undone.crop.x, 0.1, 1e-6, "crop x back"); within(undone.pins[0].x, 0.2, 1e-6, "pin x back");
+  rmSync(dir, { recursive: true });
+});
+
+await test("import Markdown: ==highlight==, a > quote and a fenced code block become formatted notes, and export writes them back", async ({ page }) => {
+  const dir = mkdtempSync(join(tmpdir(), "e2e-md-")), file = join(dir, "fmt.md");
+  writeFileSync(file, ["# Fmt", "", "a ==hot== take", "", "> wise words", "", "```", "let x = 1", "```", ""].join("\n"));
+  await page.click("#impBtn"); await page.setInputFiles("#impfile", file);
+  await page.waitForFunction(() => /1 board/.test(document.getElementById("impinfo")!.textContent!));
+  await page.click("#impgo"); await page.waitForSelector("#impdlg", { state: "hidden" });
+  await page.locator("#canvas > .board").dblclick(); await settle(page, 1500);
+  assert.equal(await page.locator(".note mark").innerText(), "hot");
+  assert.equal(await page.locator(".note blockquote").innerText(), "wise words");
+  assert.equal(await page.locator(".note pre").innerText(), "let x = 1");
+  await page.click("#expBtn");
+  const [dl] = await Promise.all([page.waitForEvent("download"), page.click('#expop [data-x="md"]')]);
+  const out = join(dir, "out.md"); await dl.saveAs(out);
+  const md = (await import("node:fs")).readFileSync(out, "utf8");
+  assert.match(md, /a ==hot== take/); assert.match(md, /> wise words/); assert.match(md, /```\nlet x = 1\n```/);
+  rmSync(dir, { recursive: true });
+});
+
+await test("several pictures chosen at once land in one \"Unsorted\" column (one undo step); a single picture stays a plain card", async ({ page }) => {
+  const dir = mkdtempSync(join(tmpdir(), "e2e-img-")), a = join(dir, "a.png"), b = join(dir, "b.png"); writeFileSync(a, twoColourPng()); writeFileSync(b, twoColourPng());
+  await page.setInputFiles("#file", [a, b]);
+  await page.waitForSelector("#canvas > .column .kids .image"); await settle(page, 800);
+  assert.equal(await page.locator("#canvas > .column").count(), 1, "one column");
+  assert.equal(await page.locator("#canvas > .column > .title").innerText(), "Unsorted");
+  assert.equal(await page.locator("#canvas > .column .kids .image").count(), 2, "both pictures are inside it");
+  assert.equal(await page.locator("#canvas > .image").count(), 0, "none loose on the board");
+  await page.keyboard.press("Control+z"); await settle(page, 800);
+  assert.equal(await page.locator("#canvas > .column").count(), 0, "one undo removes the whole column");
+  await page.setInputFiles("#file", [a, b]); await page.waitForSelector("#canvas > .column .kids .image"); await settle(page, 1000);
+  await page.reload(); await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live"); await settle(page, 1200);
+  assert.equal(await page.locator("#canvas > .column .kids .image").count(), 2, "saved on the server: still there after a reload");
+  await page.locator("#canvas > .column").click({ button: "right" }); await page.locator("#cmenu button", { hasText: "Move to Trash" }).click(); await settle(page, 600);
+  await page.setInputFiles("#file", a); await page.waitForSelector("#canvas > .image"); await settle(page, 500);
+  assert.equal(await page.locator("#canvas > .column").count(), 0, "a single picture makes no column");
+  rmSync(dir, { recursive: true });
+});
+
+await test("link card: the address of one of our boards becomes a shortcut that opens it in the same tab", async ({ page, ctx }) => {
+  const hash = () => page.evaluate(() => location.hash);
+  await add(page, "brd", "Inner"); await settle(page, 400);
+  await page.locator(".board").first().dblclick(); await page.waitForFunction(() => location.hash.length > 1); await settle(page, 800);
+  const id = (await hash()).slice(1);
+  await page.keyboard.press("Control+["); await settle(page, 600);
+  await page.click("#link"); await page.keyboard.type(`${URL}/#${id}`); await page.keyboard.press("Enter");
+  await page.waitForFunction(() => document.querySelector(".link .ptitle")?.textContent === "Inner", null, { timeout: 8000 });
+  assert.equal(await page.locator(".link .domain").innerText(), "Board");
+  assert.equal(await page.locator(".link").evaluate((d) => d.classList.contains("shortcut")), true);
+  assert.equal(await page.locator(".link .thumb").isVisible(), false, "no page preview was fetched");
+  assert.equal((await stored(page)).find((e) => e.elementType === "LINK").content.boardId, id);
+  await page.locator(".link").hover(); await page.locator(".link .go").click(); await settle(page, 800);
+  assert.equal(await hash(), "#" + id, "it opened the board");
+  assert.equal(ctx.pages().length, 1, "in the same tab");
+});
+
+await test("note text: colour and size from the format bar are saved and shown; the default colour and size take them off; nothing else gets through", async ({ page }) => {
+  const look = () => page.locator(".note .text").evaluate((t) => { const n = document.createTreeWalker(t, NodeFilter.SHOW_TEXT).nextNode()!; const cs = getComputedStyle(n.parentElement!); return [cs.color, cs.fontSize]; });
+  const html = async () => (await stored(page)).find((e) => e.elementType === "CARD").content.html as string | null;
+  await page.click("#note"); await page.keyboard.type("paint me"); await page.keyboard.press("Control+a");
+  await page.click('#fmt [data-c="colour"]'); await page.click('#fmtPal [data-color="#e5484d"]');
+  await page.click('#fmt [data-c="sizeUp"]');
+  await page.keyboard.press("Escape"); await settle(page, 900);
+  assert.deepEqual(await look(), ["rgb(229, 72, 77)", "18px"], "red, one size up");
+  const h = (await html())!; assert.match(h, /color:#e5484d/); assert.match(h, /font-size:18px/); assert.match(h, /paint me/);
+  await page.reload(); await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live"); await settle(page, 600);
+  assert.deepEqual(await look(), ["rgb(229, 72, 77)", "18px"], "still coloured after a reload");
+  await page.locator(".note").click(); await page.keyboard.press("Enter"); await page.keyboard.press("Control+a");
+  await page.click('#fmt [data-c="sizeUp"]'); assert.equal((await look())[1], "24px", "A+ again: 24px");
+  await page.click('#fmt [data-c="sizeDown"]'); await page.click('#fmt [data-c="sizeDown"]'); assert.equal((await look())[1], "14px", "two A- bring it back to the normal size");
+  await page.click('#fmt [data-c="colour"]'); await page.click('#fmtPal [data-color=""]');
+  await page.keyboard.press("Escape"); await settle(page, 900);
+  assert.equal(await html(), null, "no colour and normal size: the note is plain text again");
+  // the sanitiser keeps a checked colour and size and nothing else
+  const clean = await page.evaluate(() => (0, eval)("cleanHtml")('<span style="color:#00ff00;position:fixed;font-size:999px;background:url(//x)" onclick="alert(1)">x</span><span style="font-size:20px">y</span><span style="color:red">z</span><span style="color:rgb(1, 2, 3)">w</span>'));
+  assert.equal(clean, '<span style="color:#00ff00">x</span><span style="font-size:20px">y</span>z<span style="color:#010203">w</span>');
+});
+
+await test("drawing: choose the pen colour, strokes keep it, selected drawings can be recoloured, the choice is remembered", async ({ page }) => {
+  const stroke = (y: number) => drag(page, { x: 600, y }, { x: 760, y: y + 30 }, 8);
+  const sketches = async () => (await stored(page)).filter((e) => e.elementType === "SKETCH").sort((a, b) => a.location.position.y - b.location.position.y);
+  const strokes = () => page.locator(".sketch .ink").evaluateAll((a) => a.map((p) => getComputedStyle(p).stroke));
+  await page.click("#draw");
+  assert.equal(await page.locator("#drawbar .sw").count() >= 10, true, "a row of colours in the drawing bar");
+  await stroke(300);
+  await page.click('#drawbar [data-val="#e5484d"]'); await stroke(400);
+  await page.keyboard.press("Escape"); await settle(page, 900);
+  const [first, second] = await sketches();
+  assert.equal(first.content.color, undefined, "the default pen stores no colour (it follows light/dark)");
+  assert.equal(second.content.color, "#e5484d");
+  const [c1, c2] = await strokes(); assert.notEqual(c1, "rgb(229, 72, 77)"); assert.equal(c2, "rgb(229, 72, 77)", "the red stroke is drawn red");
+  await page.keyboard.press("Control+a");
+  assert.equal(await page.locator("#inkbar").isVisible(), true, "selected drawings offer the colours too");
+  await page.click('#inkbar [data-val="#3e63dd"]'); await settle(page, 900);
+  assert.deepEqual((await sketches()).map((s) => s.content.color), ["#3e63dd", "#3e63dd"], "both recoloured in one action");
+  assert.deepEqual(await strokes(), ["rgb(62, 99, 221)", "rgb(62, 99, 221)"]);
+  await page.keyboard.press("Control+z"); await settle(page, 900);
+  assert.deepEqual((await sketches()).map((s) => s.content.color ?? null), [null, "#e5484d"], "undo restores both colours");
+  await page.reload(); await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live");
+  await page.click("#draw");
+  assert.equal(await page.locator('#drawbar [data-val="#e5484d"]').evaluate((b) => b.classList.contains("on")), true, "the pen colour is remembered");
+});
+
+await test("boards panel: a tree of your boards, the recent ones, search across all boards (only yours), jump to the card", async ({ page }) => {
+  const hash = () => page.evaluate(() => location.hash);
+  const rows = () => page.locator("#blist .row").allInnerTexts().then((t) => t.map((x) => x.replace(/[▸▾]/g, "").trim()));
+  await add(page, "brd", "Alpha"); await settle(page, 400);
+  await page.locator(".board").first().dblclick(); await page.waitForFunction(() => location.hash.length > 1); await settle(page, 800);
+  const alpha = (await hash()).slice(1);
+  await add(page, "note", "needle in the haystack"); await add(page, "brd", "Beta"); await settle(page, 600);
+  await page.keyboard.press("Control+["); await settle(page, 800);
+  await page.click("#boardsBtn"); await page.waitForSelector("#blist .row");
+  assert.equal(await page.locator("#bpanel").isVisible(), true, "the panel opens");
+  assert.ok((await rows()).includes("Home") && (await rows()).includes("Alpha"), "Home and Alpha are listed");
+  assert.equal((await rows()).includes("Beta"), false, "Beta is inside Alpha, which is collapsed");
+  assert.equal(await page.locator("#blist h4", { hasText: "Recent" }).count(), 1, "Alpha was visited, so there is a Recent list");
+  await page.locator("#blist .row", { hasText: "Alpha" }).last().locator(".caret").click();
+  assert.ok((await rows()).includes("Beta"), "opening Alpha shows Beta under it");
+  await page.locator("#blist .row", { hasText: "Beta" }).click(); await page.waitForFunction((a) => location.hash.length > 1 && location.hash !== "#" + a, alpha); await settle(page, 800);
+  assert.equal(await page.locator("#crumbs a").last().innerText(), "Beta", "clicking a board opens it");
+  assert.equal(await page.locator("#bpanel").isVisible(), false, "and the panel closes");
+  // search across every board: Ctrl+F, type, the hit names its board, click jumps there and selects the card
+  await page.keyboard.press("Control+f"); await page.keyboard.type("haystack");
+  await page.waitForSelector("#blist .hit");
+  assert.match(await page.locator("#blist .hit").first().innerText(), /Alpha/); assert.equal(await page.locator("#blist .hit mark").first().innerText(), "haystack");
+  await page.locator("#blist .hit").first().click(); await page.waitForFunction((a) => location.hash === "#" + a, alpha); await page.waitForSelector(".note.selected"); await settle(page, 500);
+  const n = await box(page, ".note.selected"); assert.ok(n.x > 0 && n.x + n.width < 1400 && n.y > 0 && n.y + n.height < 900, "the found card is on screen");
+  // someone else cannot find it, and does not see these boards
+  const other = await fresh();
+  await other.page.keyboard.press("Control+f"); await other.page.keyboard.type("haystack"); await other.page.waitForFunction(() => /Nothing found/.test(document.getElementById("blist")!.innerText));
+  assert.equal(await other.page.locator("#blist .hit").count(), 0, "another user's search does not reach your boards");
+  assert.match(await other.page.locator("#blist h4").first().innerText(), /Nothing found/);
+  await other.page.locator("#bq").fill(""); await other.page.waitForSelector("#blist .row");
+  assert.equal((await other.page.locator("#blist .row").allInnerTexts()).some((t) => /Alpha|Beta/.test(t)), false, "nor their names in the tree");
+  await other.ctx.close();
+});
+
+await test("outline: the board as an editable list in reading order; text edits, ticks and the text options reach the board", async ({ page }) => {
+  await add(page, "note", "first note"); await add(page, "todo", "Groceries"); await add(page, "col", "Column A"); await settle(page, 600);
+  await page.click("#outlineBtn");
+  assert.equal(await page.locator("#outline").isVisible(), true);
+  const items = await page.locator("#olist > .o-item").allInnerTexts();
+  assert.equal(items.length, 3, "a note, a to-do list and a column");
+  assert.match(items[0], /first note/); assert.match(items[1], /Groceries/); assert.match(items[2], /Column A/);
+  await page.locator("#olist .o-text").first().click();
+  assert.equal(await page.locator("#fmt").isVisible(), true, "the same text options appear in the left panel");
+  await page.keyboard.press("Control+a"); await page.keyboard.type("changed in the outline"); await page.keyboard.press("Escape"); await settle(page, 800);
+  assert.equal((await stored(page)).find((e) => e.elementType === "CARD").content.textContent, "changed in the outline");
+  await page.locator("#olist .o-task input[type=checkbox]").check(); await settle(page, 800);
+  assert.equal((await stored(page)).find((e) => e.elementType === "TASK_LIST").content.tasks[0].done, true, "a tick in the outline is a tick on the board");
+  await page.locator("#olist .o-col .o-title").click(); await page.keyboard.press("Control+a"); await page.keyboard.type("Renamed"); await page.keyboard.press("Enter"); await settle(page, 800);
+  assert.equal((await stored(page)).find((e) => e.elementType === "COLUMN").content.title, "Renamed");
+  await page.keyboard.press("Escape"); await settle(page, 300);
+  assert.equal(await page.locator("#outline").isVisible(), false, "Esc closes it");
+  assert.equal(await page.locator("#canvas > .note .text").innerText(), "changed in the outline", "the board shows the edit");
+  // a card edited on the board shows up in the open outline
+  await page.click("#outlineBtn");
+  await page.evaluate(() => { const el = Object.values((window as any).__els() as any).find((e: any) => e.elementType === "CARD"); return (0, eval)("update")(el, { textContent: "from the board" }); });
+  await page.waitForFunction(() => /from the board/.test(document.getElementById("olist")!.innerText), null, { timeout: 4000 });
+});
+
+await test("theme: Ctrl+Shift+D and the Theme button switch light/dark and the choice is remembered", async ({ page }) => {
+  const theme = () => page.evaluate(() => document.documentElement.dataset.theme);
+  const bg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  const first = await theme(), firstBg = await bg();
+  assert.ok(first === "light" || first === "dark", "it starts with the system's choice");
+  await page.keyboard.press("Control+Shift+D");
+  const second = await theme();
+  assert.notEqual(second, first, "the shortcut switches it"); assert.notEqual(await bg(), firstBg, "and the colours really change");
+  await page.reload(); await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live");
+  assert.equal(await theme(), second, "the choice is remembered after a reload");
+  await page.click("#themeBtn");
+  assert.equal(await theme(), first, "the button switches it back");
+  assert.equal((await model(page)).filter((e) => e.elementType === "CARD").length, 0, "Ctrl+Shift+D did not duplicate anything");
+});
+
+await test("keyboard: Ctrl+[ and Ctrl+] go back and forward, Ctrl+U goes up to the parent board", async ({ page }) => {
+  const hash = () => page.evaluate(() => location.hash);
+  await add(page, "brd", "Inner"); await settle(page, 400);
+  await page.locator(".board").first().dblclick(); await page.waitForFunction(() => location.hash.length > 1); await settle(page, 800);
+  const inner = await hash();
+  await page.keyboard.press("Control+["); await settle(page, 600);
+  assert.equal(await hash(), "", "back to the home board");
+  await page.keyboard.press("Control+]"); await settle(page, 600);
+  assert.equal(await hash(), inner, "forward into the board again");
+  await page.keyboard.press("Control+u"); await page.waitForFunction(() => location.hash === "" || location.hash === "#"); await settle(page, 500);
+  assert.equal(await page.locator(".board").count(), 1, "Ctrl+U is the parent: the home board with the tile");
+});
+
+await test("link card: hide and show its picture, description and address from the menu", async ({ page }) => {
+  await page.click("#link"); await page.keyboard.type("http://127.0.0.1:3994/one"); await page.keyboard.press("Enter");
+  await page.waitForFunction(() => document.querySelector(".link .ptitle")?.textContent === "A Real Page", null, { timeout: 8000 });
+  await page.waitForFunction(() => { const i = document.querySelector<HTMLImageElement>(".link .thumb"); return !!i && !i.hidden && i.naturalWidth > 0; }, null, { timeout: 5000 });
+  const pick = async (label: string) => { await page.locator(".link").click({ button: "right" }); await page.locator("#cmenu button", { hasText: label }).click(); await settle(page, 500); };
+  const shown = (sel: string) => page.locator(sel).isVisible();
+  assert.equal(await shown(".link .thumb") && await shown(".link .pdesc") && await shown(".link .title"), true);
+  await pick("Hide Picture"); assert.equal(await shown(".link .thumb"), false, "picture hidden");
+  await pick("Hide Description"); assert.equal(await shown(".link .pdesc"), false, "description hidden");
+  await pick("Hide Address"); assert.equal(await shown(".link .title"), false, "address hidden");
+  assert.equal(await shown(".link .ptitle"), true, "the title stays");
+  const s = (await stored(page)).find((e) => e.elementType === "LINK");
+  assert.deepEqual([s.content.hideImage, s.content.hideDesc, s.content.hideUrl], [true, true, true], "saved");
+  await page.reload(); await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live"); await settle(page, 600);
+  assert.equal(await shown(".link .thumb"), false, "still hidden after a reload");
+  await pick("Show Picture"); await pick("Show Description"); await pick("Show Address");
+  assert.equal(await shown(".link .thumb") && await shown(".link .pdesc") && await shown(".link .title"), true, "everything is back");
 });
 
 await browser.close(); await srv.close(); pages.close(); rmSync(shots, { recursive: true, force: true });

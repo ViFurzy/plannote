@@ -75,6 +75,9 @@ function htmlToMd(html) {
     if (tag === "BR") return "\n";
     if (tag === "UL" || tag === "OL") return "\n" + [...c.children].map((li, i) => `${tag === "OL" ? i + 1 + "." : "-"} ${walk(li).join("").trim()}`).join("\n") + "\n";
     if (/^H[1-3]$/.test(tag)) return `\n### ${inner()}\n`;
+    if (tag === "MARK") return `==${inner()}==`;
+    if (tag === "BLOCKQUOTE") return "\n" + inner().trim().split("\n").map((l) => "> " + l).join("\n") + "\n";
+    if (tag === "PRE") return "\n```\n" + c.textContent.replace(/\n+$/, "") + "\n```\n";
     if (tag === "DIV" || tag === "P") return "\n" + inner() + "\n";
     return inner();
   });
@@ -92,11 +95,12 @@ function mdTable(c, out) {
 const linkUrl = (c) => safeUrl(c.url ?? "")?.href ?? String(c.url ?? ""); // a typed "example.com" becomes https://example.com/, like the link card's Open button
 function mdItem(e, o, out) {
   const c = e.content;
-  if (e.elementType === "CARD") { const t = c.html ? htmlToMd(c.html) : noteText(e); if (t) out.push(t, ""); }
+  if (e.elementType === "CARD") { const t = c.html ? htmlToMd(c.html) : noteText(e); if (t) out.push(c.heading ? "### " + t.replace(/\s*\n\s*/g, " ") : t, ""); }
   else if (e.elementType === "TASK_LIST") { if (c.title) out.push(c.title); (c.tasks ?? []).forEach((t) => out.push(`- [${t.done ? "x" : " "}] ${t.text}`)); out.push(""); }
   else if (e.elementType === "TABLE") mdTable(c, out);
+  else if (e.elementType === "SWATCH") out.push(String(c.color ?? ""), "");
   else if (e.elementType === "LINK") out.push(`[${c.previewTitle || linkUrl(c)}](${linkUrl(c)})`, "");
-  else if (e.elementType === "IMAGE") out.push(`![${c.name ?? "image"}](${o.names.get(c.mediaId) ?? ""})`, "");
+  else if (e.elementType === "IMAGE") out.push(`![${c.caption || c.name || "image"}](${o.names.get(c.mediaId) ?? ""})`, "");
   else if (e.elementType === "COLUMN") { out.push(`## ${c.title || "Column"}`, ""); e.kids.forEach((k) => mdItem(k, o, out)); }
   else if (e.elementType === "BOARD") e.sub ? mdBoard(e.sub, o, out) : out.push(`# ${c.title || "Untitled board"}`, "");
 }
@@ -106,9 +110,10 @@ function txtItem(e, out) {
   const c = e.content;
   if (e.elementType === "CARD") { const t = noteText(e); if (t) out.push(t, ""); }
   else if (e.elementType === "TASK_LIST") { if (c.title) out.push(c.title); (c.tasks ?? []).forEach((t) => out.push(`[${t.done ? "x" : " "}] ${t.text}`)); out.push(""); }
+  else if (e.elementType === "SWATCH") out.push(String(c.color ?? ""), "");
   else if (e.elementType === "TABLE") { gridOf(c).forEach((r) => out.push(r.join("\t"))); out.push(""); }
   else if (e.elementType === "LINK") out.push(linkUrl(c), "");
-  else if (e.elementType === "IMAGE") out.push(`[image: ${c.name ?? "image"}]`, "");
+  else if (e.elementType === "IMAGE") out.push(`[image: ${c.caption || c.name || "image"}]`, "");
   else if (e.elementType === "COLUMN") { out.push((c.title || "Column").toUpperCase(), ""); e.kids.forEach((k) => txtItem(k, out)); }
   else if (e.elementType === "BOARD") e.sub ? txtBoard(e.sub, out) : out.push((c.title || "Untitled board").toUpperCase(), "");
 }
@@ -122,6 +127,7 @@ async function docHtml(node) {
     const c = e.content;
     if (e.elementType === "CARD") return c.html ? `<div>${cleanHtml(c.html)}</div>` : noteText(e) ? `<p>${esc(noteText(e)).replace(/\n/g, "<br>")}</p>` : "";
     if (e.elementType === "TASK_LIST") return (c.title ? `<p><b>${esc(c.title)}</b></p>` : "") + `<ul style="list-style:none">${(c.tasks ?? []).map((t) => `<li>${t.done ? "&#9745;" : "&#9744;"} ${esc(t.text)}</li>`).join("")}</ul>`;
+    if (e.elementType === "SWATCH" && HEX.test(c.color ?? "")) return `<p><span style="background:${c.color};color:${c.color}">&#9608;&#9608;&#9608;</span> ${c.color}</p>`;
     if (e.elementType === "TABLE") return `<table border="1" style="border-collapse:collapse">${gridOf(c).map((r, i) => `<tr>${r.map((v) => `<${i ? "td" : "th"}>${esc(v)}</${i ? "td" : "th"}>`).join("")}</tr>`).join("")}</table>`;
     if (e.elementType === "LINK") return `<p><a href="${esc(linkUrl(c))}">${esc(linkUrl(c))}</a></p>`;
     if (e.elementType === "IMAGE") return imgs.get(c.mediaId) ? `<p><img src="${imgs.get(c.mediaId)}" alt="${esc(c.name)}" style="max-width:480px"></p>` : "";
@@ -297,16 +303,30 @@ menu.onclick = async (e) => {
 // ---------------------------------------------------------------------------------------------------------------------
 // reading Markdown / plain text. Headings: the first "# " names the board; later "# " lines are sub-boards (Milanote prints a
 // sub-board as "# Title"); "## " is a column. Paragraphs are notes, "- [ ]" lines a to-do list, a bare link or image gets its own card.
-const TASK = /^\s*[-*+]\s+\[([ xX])\]\s+(.*)$/;
+const TASK = /^\s*[-*+]\s+\[([ xX])\](?:\s+(.*))?$/; // Milanote also exports empty items as a bare "- [ ]"
+// inline Markdown reduced to plain text (titles, captions): **bold**, *italic*, ~~strike~~ and [text](url) lose their marks
+const plain = (s) => String(s).replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/(\*\*|__|~~)(.+?)\1/g, "$2").replace(/==(?=\S)(.+?)(?<=\S)==/g, "$1").replace(/(^|[^*\w])[*_]([^*_\n]+)[*_](?![*\w])/g, "$1$2").trim();
+// ...and as the small HTML a rich note stores (bold, italic, strike, http links); everything else is escaped text
+const inlineHtml = (s) => esc(s)
+  .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2">$1</a>')
+  .replace(/\*\*(.+?)\*\*|__(.+?)__/g, (m, a, b) => `<b>${a ?? b}</b>`)
+  .replace(/~~(.+?)~~/g, "<s>$1</s>")
+  .replace(/==(?=\S)(.+?)(?<=\S)==/g, "<mark>$1</mark>")
+  .replace(/(^|[^*\w])\*([^*\n]+)\*(?![*\w])/g, "$1<i>$2</i>");
 function parseMd(text) {
   const lines = text.replace(/\r\n?/g, "\n").split("\n"), blocks = [];
   for (let i = 0; i < lines.length;) {
     const ln = lines[i];
     let m;
     if (!ln.trim() || /^\s*(---+|\*\*\*+|___+)\s*$/.test(ln)) { i++; continue; }
-    if ((m = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(ln)) && m[2]) { blocks.push({ t: "h", level: m[1].length, text: m[2] }); i++; continue; }
-    if (/^\s*```/.test(ln)) { const code = []; for (i++; i < lines.length && !/^\s*```/.test(lines[i]); i++) code.push(lines[i]); i++; blocks.push({ t: "p", text: code.join("\n") }); continue; }
-    const tasks = (title) => { const list = []; let m2; while (i < lines.length && (m2 = TASK.exec(lines[i]))) { list.push({ text: m2[2].trim(), done: m2[1] !== " " }); i++; } blocks.push({ t: "tasks", title, tasks: list }); };
+    if ((m = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(ln)) && plain(m[2])) { blocks.push({ t: "h", level: m[1].length, text: plain(m[2]), bold: /^(\*\*|__).+\1$/.test(m[2].trim()) }); i++; continue; }
+    if (/^\s*```/.test(ln)) { const code = []; for (i++; i < lines.length && !/^\s*```/.test(lines[i]); i++) code.push(lines[i]); i++; blocks.push({ t: "p", text: code.join("\n"), raw: true }); continue; }
+    const tasks = (title) => {
+      let list = [], m2;
+      while (i < lines.length && (m2 = TASK.exec(lines[i]))) { list.push({ text: plain(m2[2] ?? ""), done: m2[1] !== " " }); i++; }
+      list = list.filter((t) => t.text); // the empty rows Milanote keeps at the end of a list are dropped, unless the list is only that
+      blocks.push({ t: "tasks", title, tasks: list.length ? list : [{ text: "", done: false }] });
+    };
     if (TASK.test(ln)) { tasks(null); continue; }
     if (/^\s*\|.*\|\s*$/.test(ln) && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1] ?? "")) { // | a | b | table, then its --- separator row
       const cells = (s) => s.trim().replace(/^\||\|$/g, "").split(/(?<!\\)\|/).map((v) => v.replace(/\\\|/g, "|").trim());
@@ -323,11 +343,36 @@ function parseMd(text) {
   return blocks;
 }
 const rid8 = () => Math.random().toString(36).slice(2, 8);
-function paragraphItem(text) {
+function noteItem(text) { // a note: bullets and numbers become a real list, a "> " paragraph a quote; **bold**, *italic*, ==highlight== and links are kept
+  let lines = text.split("\n");
+  const bullets = lines.every((l) => /^\s*[-*+]\s+/.test(l)), numbers = lines.every((l) => /^\s*\d+[.)]\s+/.test(l)), quote = lines.every((l) => /^\s*>/.test(l));
+  let html;
+  if (quote) {
+    lines = lines.map((l) => l.replace(/^\s*>\s?/, ""));
+    html = `<blockquote>${lines.map(inlineHtml).join("<br>")}</blockquote>`;
+  } else if (bullets || numbers) {
+    lines = lines.map((l) => l.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, ""));
+    const tag = bullets ? "ul" : "ol";
+    html = `<${tag}>${lines.map((l) => `<li>${inlineHtml(l)}</li>`).join("")}</${tag}>`;
+  } else html = lines.map(inlineHtml).join("<br>");
+  return { type: "CARD", content: { textContent: lines.map(plain).join("\n"), ...(/<(b|i|s|a|ul|ol|mark|blockquote)[\s>]/.test(html) ? { html } : {}) } };
+}
+const GENERIC_CAPTION = /^(image|photo|picture)(\s+from\s+.*)?$/i; // what Milanote writes when a picture has no caption of its own
+function paragraphItem(text, raw = false) {
   let m;
-  if ((m = /^!\[([^\]]*)\]\(([^)\s]+)[^)]*\)$/.exec(text))) return { type: "IMAGE", name: m[1] || "image", ref: m[2] };
-  if ((m = /^\[[^\]]*\]\((https?:[^)\s]+)\)$/.exec(text)) || (m = /^(https?:\/\/\S+)$/.exec(text))) return { type: "LINK", content: { url: m[1] } };
-  return { type: "CARD", content: { textContent: text } };
+  if (raw) return { type: "CARD", content: { textContent: text, html: `<pre>${esc(text)}</pre>` } }; // a fenced code block stays a code block
+  if (/^#[0-9a-f]{6}$/i.test(text)) return { type: "SWATCH", content: { color: text.toLowerCase() } }; // a lone hex colour
+  if ((m = /^!\[(.*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)$/s.exec(text))) { // the caption may hold brackets of its own: ![Photo by [name](url)](image-url)
+    const caption = plain(m[1]), name = decodeURIComponent(m[2].split("?")[0].split("/").pop() || "image");
+    return { type: "IMAGE", name, caption: GENERIC_CAPTION.test(caption) ? "" : caption, ref: m[2] };
+  }
+  if ((m = /^\[([^\]]*)\]\((https?:[^)\s]+)\)$/.exec(text)) || (m = /^()(https?:\/\/\S+)$/.exec(text))) {
+    let host = ""; try { host = new URL(m[2]).hostname.replace(/^www\./, ""); } catch { /* not a valid address: the card keeps it as text */ }
+    const title = plain(m[1]);
+    return { type: "LINK", content: { url: m[2], ...(title && !title.toLowerCase().startsWith(host) && !/\s-\s*link$/i.test(title) ? { previewTitle: title } : {}) } };
+  }
+  if (/^Table element string placeholder$/i.test(text)) return { type: "TABLE", content: { header: false, rows: [["", "", ""], ["", "", ""], ["", "", ""]] }, placeholder: true }; // Milanote does not export a table's cells
+  return noteItem(text);
 }
 function planFromBlocks(blocks, fallbackTitle, subBoards) {
   const root = { title: null, items: [] };
@@ -337,15 +382,22 @@ function planFromBlocks(blocks, fallbackTitle, subBoards) {
     if (b.t === "h" && b.level === 1) {
       if (root.title === null) { root.title = b.text; continue; }
       if (subBoards) { board = { title: b.text, items: [] }; root.items.push({ type: "BOARD", plan: board }); column = null; }
-      else put({ type: "CARD", content: { textContent: b.text } });
-    } else if (b.t === "h" && b.level === 2) { column = { type: "COLUMN", content: { title: b.text }, kids: [] }; board.items.push(column); }
-    else if (b.t === "h") put({ type: "CARD", content: { textContent: b.text } });
+      else put({ type: "CARD", content: { textContent: b.text, heading: true } });
+    } else if (b.t === "h" && b.level === 2 && b.bold) { column = null; board.items.push({ type: "CARD", content: { textContent: b.text, heading: true } }); } // "## **Title**" is a heading note, not a column: it ends the column above and what follows sits on the board
+    else if (b.t === "h" && b.level === 2) { column = { type: "COLUMN", content: { title: b.text }, kids: [] }; board.items.push(column); }
+    else if (b.t === "h") put({ type: "CARD", content: { textContent: b.text, heading: true } });
     else if (b.t === "tasks") put({ type: "TASK_LIST", content: { title: b.title ?? "", tasks: b.tasks.map((t) => ({ id: rid8(), text: t.text, done: t.done })) } });
     else if (b.t === "table") {
       const w = Math.min(20, Math.max(...b.rows.map((r) => r.length)));
       put({ type: "TABLE", content: { header: true, rows: b.rows.slice(0, 100).map((r) => Array.from({ length: w }, (_, i) => (r[i] ?? "").slice(0, 500))) } });
     }
-    else if (b.text) put(paragraphItem(b.text));
+    else if (b.text) {
+      const it = paragraphItem(b.text, b.raw), last = (column ? column.kids : board.items).at(-1);
+      // Milanote prints a link card as its link followed by the card's description. Only a link with a real title (not "site - Link") takes the next plain paragraph;
+      // after a bare link the next paragraph is a note of its own ("250 pln").
+      if (it.type === "CARD" && !it.content.html && !b.raw && last?.type === "LINK" && last.content.previewTitle && !last.content.previewDesc) last.content.previewDesc = it.content.textContent;
+      else put(it);
+    }
   }
   root.title ??= fallbackTitle;
   return root;
@@ -413,11 +465,11 @@ $("impsub").onchange = () => updatePreview();
 const SLOT = 270, GAP = 24;
 function estimate(it) { // rough heights, only for laying cards out in columns
   if (it.type === "CARD") return 30 + 21 * Math.ceil(String(it.content.textContent).length / 26);
-  if (it.type === "TASK_LIST") return 50 + 28 * it.content.tasks.length;
-  if (it.type === "LINK") return 90;
-  if (it.type === "TABLE") return 40 + 30 * it.content.rows.length;
-  if (it.type === "IMAGE") return 14 + 220 * ((it.h || 3) / (it.w || 4));
-  if (it.type === "COLUMN") return 56 + it.kids.reduce((n, k) => n + estimate(k) + 8, 0);
+  if (it.type === "TASK_LIST") return 90 + 30 * it.content.tasks.length;
+  if (it.type === "LINK") return 130 + (it.content.previewImage ? 150 : 0) + (it.content.previewDesc ? 60 : 0); // title, address and buttons, plus the picture and description when the site gave them
+  if (it.type === "TABLE") return 80 + 32 * it.content.rows.length;
+  if (it.type === "IMAGE") return 24 + 220 * ((it.h || 3) / (it.w || 4)) + (it.caption ? 30 : 0);
+  if (it.type === "COLUMN") return 100 + it.kids.reduce((n, k) => n + estimate(k) + 10, 0);
   return 150;
 }
 function layout(items) { // shortest-column-first masonry, four columns
@@ -451,20 +503,48 @@ function emit(plan, parentId, pos, out) {
   }
   return board;
 }
-async function resolveImages(plan, byName, used, warn) { // turn image references into uploaded images
+// An image address in the file: a ZIP entry with that file name wins, then a data: address, then the address itself is downloaded by the server.
+// Milanote's own picture addresses are public, and "?w=800" only asks for a smaller copy, so the full picture is tried first.
+async function fetchRemote(href) {
+  const tries = /^https?:\/\/app\.milanote\.com\//.test(href) && href.includes("?") ? [href.split("?")[0], href] : [href];
+  for (const u of tries) {
+    const r = await fetch("/api/fetch-image?url=" + encodeURIComponent(u), { headers: { "x-user-id": uid } }).catch(() => null);
+    if (r?.ok) return (await r.json()).id;
+  }
+  return null;
+}
+async function resolveImages(plan, byName, used, warn, say = () => {}) { // turn image references into uploaded images, and give link cards their preview
+  const jobs = [];
+  const walk = (items) => items.forEach((it) => { if (it.type === "COLUMN") walk(it.kids); else if (it.type === "BOARD") walk(it.plan.items); else if ((it.type === "IMAGE" && !it.content) || it.type === "LINK") jobs.push(it); });
+  walk(plan.items);
+  const images = jobs.filter((it) => it.type === "IMAGE").length;
+  let done = 0, links = 0;
   const handle = async (it) => {
-    if (it.type === "COLUMN") for (const k of it.kids) await handle(k);
-    if (it.type === "BOARD") await resolveImages(it.plan, byName, used, warn);
-    if (it.type !== "IMAGE" || it.content) return;
-    const ref = decodeURIComponent(String(it.ref).split("?")[0]), base = ref.split("/").pop().toLowerCase();
-    let bytes, type;
-    if (/^data:image\/(png|jpeg|gif|webp);base64,/.test(ref)) { const [h, d] = ref.split(","); type = h.slice(5, h.indexOf(";")); bytes = Uint8Array.from(atob(d), (c) => c.charCodeAt(0)); }
+    if (it.type === "LINK") { // a preview (site title, description, picture) when the site allows it; Milanote's text export has none of this
+      if (links++ >= 18) return; // the server allows 20 previews a minute
+      const r = await fetch("/api/unfurl?url=" + encodeURIComponent(it.content.url), { headers: { "x-user-id": uid } }).catch(() => null);
+      if (!r?.ok) return;
+      const p = await r.json();
+      Object.assign(it.content, { previewTitle: it.content.previewTitle ?? p.title ?? null, previewDesc: it.content.previewDesc ?? p.description ?? null, previewSite: p.site ?? null, previewImage: p.mediaId ?? null }); // what the file says wins over the site's own text
+      return;
+    }
+    const href = String(it.ref), ref = decodeURIComponent(href.split("?")[0]), base = ref.split("/").pop().toLowerCase();
+    let bytes, type, id;
+    if (/^data:image\/(png|jpeg|gif|webp);base64,/.test(href)) { const [h, d] = href.split(","); type = h.slice(5, h.indexOf(";")); bytes = Uint8Array.from(atob(d), (c) => c.charCodeAt(0)); }
     else if (byName.has(base)) { const z = byName.get(base); bytes = await z.bytes(); type = mimeOf(z.name); used.add(base); }
-    if (!bytes) { it.type = "LINK"; it.content = { url: /^https?:/.test(ref) ? ref : "" }; warn.push(`image "${it.name}" was not in the ZIP`); return; }
-    try { const id = await uploadImage(bytes, type), { w, h } = await imageSize(bytes, type); Object.assign(it, { w, h, content: { mediaId: id, name: it.name } }); }
+    else if (/^https?:\/\//i.test(href)) id = await fetchRemote(href);
+    say(`Importing pictures ${++done} of ${images}...`);
+    const keep = (mediaId, w, h) => Object.assign(it, { w, h, content: { mediaId, name: it.name, ...(it.caption ? { caption: it.caption } : {}) } });
+    if (id) { // downloaded by the server: read its size from the stored copy
+      try { const b = await createImageBitmap(await mediaBlob(id)); keep(id, b.width, b.height); } catch { keep(id, 4, 3); }
+      return;
+    }
+    if (!bytes) { it.type = "LINK"; it.content = { url: /^https?:/.test(href) ? href : "" }; warn.push(`picture "${it.name}" could not be downloaded or found in the ZIP`); return; }
+    try { const mediaId = await uploadImage(bytes, type), { w, h } = await imageSize(bytes, type); keep(mediaId, w, h); }
     catch (err) { it.type = "CARD"; it.content = { textContent: `[image not imported: ${it.name} (${err.message})]` }; warn.push(`image "${it.name}": ${err.message}`); }
   };
-  for (const it of plan.items) await handle(it);
+  let next = 0;
+  await Promise.all(Array.from({ length: 4 }, async () => { while (next < jobs.length) await handle(jobs[next++]); })); // four at a time
 }
 async function sendAll(list, progress) { // parents come before their children in `list`, and the socket keeps order
   for (let i = 0; i < list.length; i += 50) {
@@ -514,7 +594,7 @@ $("impgo").onclick = async () => {
     for (const p of imp.plans) {
       const plan = planFromBlocks(p.blocks, p.name.replace(/\.[^.]*$/, ""), sub);
       say2(`Uploading images for "${plan.title}"...`);
-      await resolveImages(plan, byName, used, warn);
+      await resolveImages(plan, byName, used, warn, say2);
       tiles.push(emit(plan, B, freeSpot("BOARD"), out));
     }
     const leftovers = [...byName.entries()].filter(([k]) => !used.has(k));
@@ -540,7 +620,8 @@ $("impgo").onclick = async () => {
     setSel(tiles.map((t) => t.id));
     pushHistory({ kind: "move", moves: tiles.map((t) => ({ id: t.id, from: trashOf(t.location), to: t.location })) });
     say2(`Imported ${out.length} item${out.length === 1 ? "" : "s"} (boards, columns and cards) in ${tiles.length} new board${tiles.length === 1 ? "" : "s"}.${warn.length ? "\nNote: " + warn.slice(0, 6).join("; ") + (warn.length > 6 ? `; and ${warn.length - 6} more` : "") : ""}`);
-    toast(`Imported ${plural(tiles.length, "board")}`);
+    toast(`Imported ${plural(tiles.length, "board")} (${out.length} items)`);
+    if (!warn.length) dlg.hidden = true; // all went well: nothing left to read. With warnings the dialog stays open so they can be read.
   } catch (err) { say2("Import failed: " + (err.message ?? err)); await resync(); }
   go.disabled = false;
 };

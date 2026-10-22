@@ -15,8 +15,10 @@
     --tile-sage: #c8d3c3; --tile-teal: #7fb3bf; --tile-sand: #e8d3b4; --tile-orange: #ef6c1a; --tile-slate: #5c6b7a; --tile-rose: #e7b9b3; --tile-lilac: #c3b8dc;
     --fg-sage: #2b362b; --fg-teal: #12353d; --fg-sand: #4a3a20; --fg-orange: #ffffff; --fg-slate: #ffffff; --fg-rose: #4a2a27; --fg-lilac: #2f2650;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
+  /* dark palette. data-theme is set by the script below: the system's choice until it is chosen by hand (Ctrl+Shift+D or the Theme button) */
+  :root[data-theme=light] { color-scheme: light; }
+  :root[data-theme=dark] {
+      color-scheme: dark;
       --bg: #101318; --dot: #232831; --surface: #1a1e25; --surface-2: #232830;
       --ink: #e7eaf0; --muted: #98a1b0; --line: #2c323c;
       --accent: #7d98ff; --accent-soft: #1d2842; --ok: #4cc38a; --bad: #ff7a6b;
@@ -24,7 +26,6 @@
       --tint-sage: #2c3629; --tint-teal: #24383d; --tint-sand: #3d3426; --tint-orange: #4a2f1c; --tint-slate: #2b323a; --tint-rose: #402b29; --tint-lilac: #332e43;
       --tile-sage: #55664f; --tile-teal: #3f7a89; --tile-sand: #8a6f45; --tile-orange: #d9611a; --tile-slate: #6f7f90; --tile-rose: #9c615b; --tile-lilac: #6e5f98;
       --fg-sage: #eef2ec; --fg-teal: #eaf5f7; --fg-sand: #fbf3e4; --fg-orange: #ffffff; --fg-slate: #ffffff; --fg-rose: #fbeeed; --fg-lilac: #f1edfa;
-    }
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
@@ -36,8 +37,8 @@
   body.pan, body.pan .card { cursor: grab; }
 
   /* chrome */
-  #tools { position: fixed; left: 12px; top: 50%; transform: translateY(-50%); z-index: 9; display: flex; flex-direction: column; gap: 2px;
-           max-height: calc(100vh - 24px); overflow: auto; padding: 6px; background: var(--surface); border: 1px solid var(--line);
+  #tools { position: fixed; left: 12px; top: calc(50% + 23px); transform: translateY(-50%); z-index: 9; display: flex; flex-direction: column; gap: 2px;
+           max-height: calc(100vh - 70px); overflow: auto; padding: 6px; background: var(--surface); border: 1px solid var(--line);
            border-radius: var(--r); box-shadow: var(--shadow); }
   .tool { all: unset; box-sizing: border-box; width: 56px; padding: 8px 0 6px; display: grid; justify-items: center; gap: 2px;
           border-radius: calc(var(--r) - 2px); cursor: pointer; color: var(--muted); font-size: 11px; }
@@ -46,7 +47,10 @@
   .tool.drop { background: var(--accent-soft); color: var(--bad); } /* a card is being dragged over Trash */
   svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
   .sep { height: 1px; background: var(--line); margin: 4px 8px; }
-  #top { position: fixed; top: 12px; left: 84px; right: 12px; z-index: 9; display: flex; justify-content: space-between; gap: 12px; pointer-events: none; }
+  /* the top bar: one solid field with navigation, search and board actions in groups (no more loose floating buttons) */
+  #top { position: fixed; top: 0; left: 0; right: 0; z-index: 9; display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 46px; padding: 6px 12px; background: var(--surface); border-bottom: 1px solid var(--line); box-shadow: var(--shadow); }
+  #top .pill { background: transparent; border: 0; box-shadow: none; padding: 0 4px; }
+  #side > .pill + .pill { border-left: 1px solid var(--line); padding-left: 12px; margin-left: 4px; }
   .pill { pointer-events: auto; display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--surface);
           border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); color: var(--muted); }
   #crumbs a { color: var(--muted); text-decoration: none; }
@@ -83,6 +87,10 @@
   .text:empty::before { content: "Type a note"; color: var(--muted); }
   .text ul, .text ol { margin: 2px 0; padding-left: 22px; }
   .text h1, .text h2, .text h3 { margin: 2px 0; font-size: 16px; line-height: 1.3; }
+  .text mark { background: #ffe58a; color: inherit; border-radius: 2px; padding: 0 1px; }
+  .text blockquote { margin: 2px 0; padding-left: 10px; border-left: 3px solid var(--muted); color: var(--muted); }
+  .text pre { margin: 2px 0; padding: 6px 8px; font: 12px/1.4 ui-monospace, monospace; background: rgb(127 127 127 / .15); border-radius: 6px; white-space: pre-wrap; }
+  .text [align=center] { text-align: center; }
   .text a { color: var(--accent); }
   .column { width: 240px; padding: 10px; background: var(--surface-2); }
   .column > .title { font-weight: 600; padding: 2px 4px 8px; }
@@ -115,13 +123,33 @@
 
   .todo { width: 240px; padding: 10px 12px; }
   .todo > .title { font-weight: 600; padding-bottom: 6px; }
-  .task { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
-  .task input[type=checkbox] { flex: none; width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
-  .task input[type=text] { flex: 1; min-width: 0; font: inherit; color: inherit; background: transparent; border: 0; border-bottom: 1px solid transparent; padding: 2px 0; outline: none; }
-  .task input[type=text]:focus { border-bottom-color: var(--accent); }
-  .task input:checked + input[type=text] { color: var(--muted); text-decoration: line-through; }
+  .task { display: flex; align-items: flex-start; gap: 8px; padding: 2px 0; }
+  .task input[type=checkbox] { flex: none; width: 16px; height: 16px; margin: 4px 0 0; accent-color: var(--accent); cursor: pointer; }
+  .task textarea { flex: 1; min-width: 0; display: block; font: inherit; line-height: 1.35; color: inherit; background: transparent; border: 0; border-bottom: 1px solid transparent; padding: 2px 0; outline: none; resize: none; overflow: hidden; overflow-wrap: anywhere; field-sizing: content; } /* a task wraps and grows instead of running out of the card */
+  .task textarea:focus { border-bottom-color: var(--accent); }
+  .task input:checked + textarea { color: var(--muted); text-decoration: line-through; }
   .meta { color: var(--muted); font-size: 12px; padding-top: 4px; }
+  .note.heading { background: transparent !important; box-shadow: none; border-color: transparent; }
+  .note.heading { width: 360px; }
+  .note.heading .text { overflow-wrap: break-word; word-break: normal; font: 700 30px/1.2 Georgia, "Times New Roman", serif; letter-spacing: -.01em; }
+  .card.locked::after { content: ""; position: absolute; right: 6px; top: 6px; width: 14px; height: 14px; opacity: .45; pointer-events: none;
+    background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Cpath d='M7 10V8a5 5 0 0 1 10 0v2h1a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1zm2 0h6V8a3 3 0 0 0-6 0z'/%3E%3C/svg%3E") center/contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Cpath d='M7 10V8a5 5 0 0 1 10 0v2h1a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1zm2 0h6V8a3 3 0 0 0-6 0z'/%3E%3C/svg%3E") center/contain no-repeat; }
+  #cmenu { position: fixed; z-index: 30; min-width: 220px; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow-lift); }
+  #cmenu button { display: flex; justify-content: space-between; gap: 24px; width: 100%; padding: 6px 10px; border: 0; background: none; color: inherit; font: inherit; text-align: left; border-radius: 6px; cursor: pointer; }
+  #cmenu button:hover:not(:disabled) { background: var(--accent-soft); }
+  #cmenu button:disabled { opacity: .4; cursor: default; }
+  #cmenu kbd { font: 11px ui-monospace, monospace; color: var(--muted); }
+  #cmenu hr { border: 0; border-top: 1px solid var(--line); margin: 5px 2px; }
+  #cmenu .meta { padding: 6px 10px 2px; font-size: 12px; color: var(--muted); }
+  #presenthint { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 6px 14px; border-radius: 99px; background: var(--surface); box-shadow: var(--shadow-lift); font-size: 13px; display: none; z-index: 40; }
+  body.presenting #presenthint { display: block; animation: hint 3.2s forwards; }
+  @keyframes hint { 0%, 70% { opacity: 1 } 100% { opacity: 0; visibility: hidden } }
+  body.presenting #tools, body.presenting #top, body.presenting #zoom, body.presenting #trash, body.presenting #ctx, body.presenting #bgpop, body.presenting #drawbar, body.presenting #fmt, body.presenting #bpanel, body.presenting #outline { display: none !important; }
+  body.presenting { background-image: none !important; }
+  body.presenting .grip, body.presenting .img-tools, body.presenting .tbl-tools, body.presenting .h { display: none !important; }
   .sheet { min-width: 260px; padding: 8px; }
+  .kids > .sheet { min-width: 0; } .kids > .sheet .tbl { max-width: 100%; } .kids .tbl .cell { min-width: 56px; } /* inside a column a table fits the column */
+  .kids > .note.heading { width: auto; } .kids > .note.heading .text { font-size: 20px; } /* ...and so does a heading, at a size that suits a column */
   .tbl { overflow: auto; max-width: 80vw; }
   .tbl table { border-collapse: collapse; width: 100%; }
   .tbl td { border: 1px solid var(--line); padding: 0; }
@@ -131,12 +159,35 @@
   .tbl-tools { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 6px; }
   .link { width: 240px; padding: 10px 12px; }
   .link .domain { color: var(--muted); font-size: 12px; }
+  .link.shortcut { border-left: 4px solid var(--accent); }
+  .link.no-img .thumb, .link.no-desc .pdesc, .link.no-url .title:not([contenteditable=true]) { display: none; }
   .link .thumb { display: block; width: calc(100% + 24px); margin: -10px -12px 8px; max-height: 180px; object-fit: cover; border-radius: inherit; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
   .link .ptitle { font-weight: 600; overflow-wrap: anywhere; padding-top: 2px; }
   .link .pdesc { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .link .ptitle:empty, .link .pdesc:empty { display: none; }
   .link .title { word-break: break-all; padding: 2px 0 8px; }
   .image { width: 220px; padding: 6px; }
+  .image { position: relative; }
+  .image .frame { position: relative; overflow: hidden; border-radius: calc(var(--r) - 3px); line-height: 0; }
+  .image .title { line-height: 1.35; padding: 6px 4px 2px; font-size: 13px; overflow-wrap: anywhere; }
+  .image:not(.selected) .title:empty { display: none; }
+  .image .title:empty::before { content: "Add a caption"; color: var(--muted); }
+  .card.image[data-tint]:not(.board) { background: var(--surface); } /* a colour on a picture is a strip, not a fill */
+  .image[data-tint] .img-tools { top: 18px; }
+  .image[data-tint]::before { content: ""; display: block; height: 8px; margin: -6px -6px 6px; border-radius: var(--r) var(--r) 0 0; background: var(--tile); }
+  .image .img-tools { position: absolute; right: 10px; top: 10px; left: 10px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; opacity: 0; transition: opacity .15s; }
+  .image:hover .img-tools, .image.selected .img-tools, .image.cropping .img-tools { opacity: 1; }
+  .image .img-tools { pointer-events: none; } .image .img-tools .btn { pointer-events: auto; } /* the bar's empty space must not block the picture under it */
+  .image .pins { position: absolute; inset: 0; pointer-events: none; }
+  .image .pin { position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; padding: 0; border-radius: 50%; border: 2px solid #fff; background: var(--accent); color: #fff; font: 600 11px/18px system-ui; pointer-events: auto; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+  .image.pinning .frame { cursor: crosshair; outline: 2px solid var(--accent); }
+  .image .crop { position: absolute; border: 2px solid #fff; box-shadow: 0 0 0 9999px rgba(0,0,0,.5); cursor: move; touch-action: none; }
+  .image .crop .ch { position: absolute; width: 14px; height: 14px; background: #fff; border: 2px solid var(--accent); border-radius: 3px; touch-action: none; }
+  .image .crop .tl { left: -8px; top: -8px; cursor: nwse-resize; }
+  .image .crop .br { right: -8px; bottom: -8px; cursor: nwse-resize; }
+  .swatch { width: 112px; padding: 6px; }
+  .swatch .chip { height: 80px; border-radius: calc(var(--r) - 3px); box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+  .swatch .hex { font: 12px/1.2 ui-monospace, monospace; text-align: center; padding: 6px 0 2px; user-select: all; }
   .image img { display: block; width: 100%; height: auto; border-radius: calc(var(--r) - 3px); pointer-events: none; }
 
   /* lines: a zero-size anchor at the start point; the svg draws the shaft and arrowhead around it */
@@ -154,8 +205,10 @@
   .line.selected .h { display: block; }
   .line.selected :is(.vis, .head) { filter: drop-shadow(0 0 3px var(--accent)); } /* the colour is the user's choice, so selection is a glow */
   /* floating option bars that follow the selection (line style, colour, board icon) */
-  #ctx { position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: 9; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; max-width: calc(100vw - 120px); }
-  #ctx .pill { gap: 12px; flex-wrap: wrap; justify-content: center; }
+  /* the options panel, docked on the left next to the tools: text options while a note is edited, picture options for a picture, colours, lines, pen... */
+  #ctx { position: fixed; top: 58px; left: 92px; z-index: 9; display: flex; flex-direction: column; align-items: stretch; gap: 8px; pointer-events: none; width: 276px; max-height: calc(100vh - 150px); overflow-y: auto; scrollbar-width: thin; }
+  #ctx .pill { gap: 8px 10px; flex-wrap: wrap; justify-content: flex-start; align-items: center; }
+  #ctx .pill > .lab:first-child { flex: 0 0 100%; font-size: 12px; font-weight: 600; }
   #bgpop { position: fixed; top: 56px; left: 84px; z-index: 10; flex-direction: column; align-items: flex-start; gap: 8px; }
   .lab { color: var(--muted); font-size: 12px; }
   .seg .ic { width: 30px; height: 30px; padding: 3px; display: grid; place-items: center; }
@@ -169,9 +222,10 @@
   .seg { display: flex; gap: 2px; }
   .seg .btn.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
   .seg .sw { width: 22px; height: 22px; padding: 0; border-radius: 50%; background: var(--c); }
+  .seg .sw.on:not(.none):not(.custom) { background: var(--c); box-shadow: 0 0 0 2px var(--accent); } /* the chosen colour stays visible, ringed */
   .btn:disabled { opacity: .4; cursor: default; }
   .btn:disabled:hover { border-color: var(--line); color: var(--ink); }
-  #side { display: flex; gap: 8px; }
+  #side { display: flex; align-items: center; flex-wrap: wrap; row-gap: 6px; gap: 8px; flex: 1; min-width: 0; }
 
   /* drawings: transparent so overlapping strokes do not hide each other; only the ink itself is clickable */
   .card.sketch { width: 240px; padding: 6px; background: none; border-color: transparent; box-shadow: none; pointer-events: none; }
@@ -183,7 +237,8 @@
   #draft { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; z-index: 20; }
   body[data-tool=line], body[data-tool=line] .card, body[data-tool=draw], body[data-tool=draw] .card { cursor: crosshair; }
   .tool.on { background: var(--accent-soft); color: var(--accent); }
-  #drawbar { position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: 9; }
+  #imgbar .btn.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  .image .img-tools { display: none; } /* a picture's buttons live in the options panel (the card keeps them, hidden, as what the panel presses) */
 
   /* comments */
   .comment { width: 240px; padding: 10px 12px; }
@@ -250,17 +305,72 @@
          border-radius: calc(var(--r) - 2px); padding: 2px 10px; cursor: pointer; }
   .btn:hover { border-color: var(--accent); color: var(--accent); }
 
+  /* boards panel: every board you can open, the last visited, and search across all boards */
+  #bpanel { position: fixed; top: 54px; left: 92px; z-index: 11; flex-direction: column; align-items: stretch; gap: 8px; width: 340px; max-height: calc(100vh - 80px); padding: 10px; color: var(--ink); }
+  #bpanel input { font: inherit; color: var(--ink); background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; outline: none; user-select: text; }
+  #bpanel input:focus { border-color: var(--accent); }
+  #blist { overflow: auto; display: flex; flex-direction: column; gap: 1px; min-height: 0; }
+  #blist h4 { margin: 8px 4px 2px; font-size: 12px; color: var(--muted); font-weight: 600; }
+  #blist .row { display: flex; align-items: center; justify-content: flex-start; gap: 4px; width: 100%; padding: 5px 6px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+  #blist .row:hover { background: var(--accent-soft); }
+  #blist .row.here { font-weight: 600; color: var(--accent); }
+  #blist .caret { flex: none; width: 16px; text-align: center; color: var(--muted); }
+  #blist small { color: var(--muted); }
+  #blist .snip { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+  #blist mark { background: #ffe58a; color: #161a21; border-radius: 2px; }
+  /* outline: the board as a list of its text, to read, edit and copy */
+  #outline { position: fixed; top: 46px; left: 0; right: 0; bottom: 0; z-index: 7; overflow: auto; background: var(--bg); padding: 20px 24px 80px 92px; user-select: text; }
+  #olist { max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+  #olist .o-bar { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+  #olist .o-bar b { color: var(--ink); font-size: 16px; margin-right: auto; }
+  #olist .o-item { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
+  #olist .o-item > .o-go { position: absolute; top: 6px; right: 6px; opacity: 0; }
+  #olist .o-item:hover > .o-go, #olist .o-item:focus-within > .o-go { opacity: 1; }
+  #olist .o-item > .btn:not(.o-go) { align-self: flex-start; }
+  #olist .o-col { border-left: 4px solid var(--accent); }
+  #olist .o-col > .o-title { font-weight: 700; }
+  #olist .o-kids { display: flex; flex-direction: column; gap: 8px; margin-left: 8px; }
+  #olist .o-title, #olist .o-cap { outline: none; min-height: 1.4em; overflow-wrap: anywhere; }
+  #olist .o-title:empty::before, #olist .o-cap:empty::before { content: attr(data-ph); color: var(--muted); }
+  #olist .o-text { outline: none; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
+  #olist .o-text.heading { font: 700 20px/1.25 Georgia, "Times New Roman", serif; }
+  #olist .o-task { display: flex; gap: 8px; align-items: flex-start; }
+  #olist .o-task input[type=checkbox] { margin-top: 4px; accent-color: var(--accent); }
+  #olist .o-task textarea { flex: 1; min-width: 0; font: inherit; color: inherit; background: transparent; border: 0; border-bottom: 1px solid transparent; outline: none; resize: none; overflow: hidden; field-sizing: content; }
+  #olist .o-task textarea:focus { border-bottom-color: var(--accent); }
+  #olist .o-task.done textarea { color: var(--muted); text-decoration: line-through; }
+  #olist .o-img img { max-width: 220px; max-height: 140px; border-radius: 6px; align-self: flex-start; }
+  #olist .o-link a { color: var(--accent); overflow-wrap: anywhere; }
+  #olist .o-link .o-desc, #olist .o-muted { color: var(--muted); font-size: 13px; }
+  #olist table { border-collapse: collapse; font-size: 13px; } #olist td { border: 1px solid var(--line); padding: 3px 7px; }
+  #olist .o-chip { display: inline-block; width: 18px; height: 18px; border-radius: 50%; vertical-align: middle; margin-right: 6px; border: 1px solid var(--line); }
+  #olist .o-empty { color: var(--muted); text-align: center; padding: 40px 0; }
+  #outlineBtn.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
   @media (max-width: 640px) {
     #tools { top: auto; bottom: 12px; left: 50%; transform: translateX(-50%); flex-direction: row; max-width: calc(100vw - 24px); }
     .sep { width: 1px; height: auto; margin: 8px 4px; }
-    #top { left: 12px; } #trash { left: 12px; bottom: 88px; } #zoom { bottom: 88px; }
+    #trash { left: 12px; bottom: 88px; } #zoom { bottom: 88px; } #ctx { left: 12px; top: 100px; }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
+<script>
+// theme: the system's until it is chosen by hand (then remembered). Set before the page draws, so it does not flash.
+{
+  const mq = matchMedia("(prefers-color-scheme: dark)"), saved = () => { try { return localStorage.getItem("theme"); } catch { return null; } };
+  const apply = () => (document.documentElement.dataset.theme = saved() ?? (mq.matches ? "dark" : "light"));
+  apply(); mq.addEventListener("change", apply);
+  window.toggleTheme = () => {
+    try { localStorage.setItem("theme", document.documentElement.dataset.theme === "dark" ? "light" : "dark"); } catch { /* private mode: the choice lasts until reload */ document.documentElement.dataset.theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark"; return; }
+    apply();
+  };
+}
+</script>
 
 <nav id="tools" aria-label="Add to board">
   <button class="tool" id="note"><svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M8.5 9h7M8.5 13h7M8.5 16h4"/></svg>Note</button>
   <button class="tool" id="todo"><svg viewBox="0 0 24 24"><path d="M4.5 7l1.5 1.5L9 5.5M4.5 16l1.5 1.5L9 14.5"/><path d="M12.5 7h7M12.5 16h7"/></svg>To-do</button>
+  <button class="tool" id="heading"><svg viewBox="0 0 24 24"><path d="M6 5v14M18 5v14M6 12h12"/></svg>Heading</button>
+  <button class="tool" id="swatch"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="9" cy="10" r="1.2"/><circle cx="14" cy="9.5" r="1.2"/><circle cx="15.5" cy="14" r="1.2"/></svg>Colour</button>
   <button class="tool" id="table"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M4 10h16M4 14.5h16M10 5v14"/></svg>Table</button>
   <button class="tool" id="link"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>Link</button>
   <button class="tool" id="image"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M4 16l4.5-4 3.5 3 3-2.5 5 4"/></svg>Image</button>
@@ -278,11 +388,20 @@
     <div class="pill" id="crumbs"></div>
     <div class="pill" id="history"><button class="btn" id="undo" disabled title="Undo (Ctrl+Z)">Undo</button><button class="btn" id="redo" disabled title="Redo (Ctrl+Shift+Z)">Redo</button></div>
     <div class="pill" id="search"><input id="q" name="q" placeholder="Search this board  ( / )" autocomplete="off" aria-label="Search this board"><span id="qcount" class="lab"></span></div>
-    <div class="pill"><button class="btn" id="bgBtn" title="Board background">Background</button></div>
+    <div class="pill"><button class="btn" id="boardsBtn" title="All your boards, the ones you visited last, and search across all of them (Ctrl+F)">Boards</button><button class="btn" id="outlineBtn" title="This board as a list you can read, edit and copy">Outline</button></div>
+    <div class="pill"><button class="btn" id="bgBtn" title="Board background">Background</button><button class="btn" id="presentBtn" title="Full screen without the toolbar (Esc to leave)">Present</button><button class="btn" id="themeBtn" title="Light or dark (Ctrl+Shift+D)">Theme</button></div>
     <div class="pill"><button class="btn" id="expBtn" title="Export this board">Export</button><button class="btn" id="impBtn" title="Import a board">Import</button></div>
   </div>
   <div class="pill" id="st" data-state="wait">Connecting</div>
 </div>
+<div class="pill" id="bpanel" hidden>
+  <input id="bq" name="bq" placeholder="Search all boards" autocomplete="off" aria-label="Search all boards">
+  <div id="blist"></div>
+</div>
+<div id="outline" hidden>
+  <div id="olist"></div>
+</div>
+<div id="presenthint">Press Esc to leave presentation mode</div>
 <div class="pill" id="bgpop" hidden>
   <span class="lab">Pattern</span>
   <div class="seg" data-prop="bg"><button class="btn" data-val="dots">Dots</button><button class="btn" data-val="grid">Grid</button><button class="btn" data-val="plain">Plain</button></div>
@@ -329,6 +448,28 @@
   <div id="precent"></div>
 </div>
 <div id="ctx">
+<div class="pill" id="drawbar" hidden><span class="lab">Pen</span><div class="seg" data-prop="pen"></div><span class="lab" style="flex:0 0 100%">Every stroke is saved as you lift the pen. Esc to stop.</span></div>
+<div class="pill" id="imgbar" hidden><span class="lab">Picture</span>
+  <button class="btn" id="imgPal" title="Make colour cards from this picture">Colours</button><button class="btn" id="imgCrop">Crop</button><button class="btn" id="imgReset" hidden>Reset</button><button class="btn" id="imgPin" title="Click the picture to leave a numbered note on it">Pin</button><button class="btn" id="imgRotate" title="Turn the picture 90 degrees clockwise">Rotate</button><button class="btn" id="imgDownload" title="Save the whole picture (not the crop)">Download</button><button class="btn" id="imgOpen">Open</button>
+</div>
+<div class="pill" id="fmt" hidden>
+  <button class="btn" data-c="bold" title="Bold (Ctrl+B)"><b>B</b></button>
+  <button class="btn" data-c="italic" title="Italic (Ctrl+I)"><i>I</i></button>
+  <button class="btn" data-c="underline" title="Underline (Ctrl+U)"><u>U</u></button>
+  <button class="btn" data-c="strikeThrough" title="Strikethrough"><s>S</s></button>
+  <button class="btn" data-c="insertUnorderedList" title="Bulleted list">&bull; List</button>
+  <button class="btn" data-c="insertOrderedList" title="Numbered list">1. List</button>
+  <button class="btn" data-c="heading" title="Heading (# then Space)">Heading</button>
+  <button class="btn" data-c="quote" title="Quote (&gt; then Space)">Quote</button>
+  <button class="btn" data-c="code" title="Code block">Code</button>
+  <button class="btn" data-c="highlight" title="Highlight (Ctrl+J)">Highlight</button>
+  <button class="btn" data-c="link" title="Link (Ctrl+K)">Link</button>
+  <button class="btn" data-c="center" title="Centre (Ctrl+\)">Centre</button>
+  <button class="btn" data-c="sizeDown" title="Smaller text (select some text first)">A-</button>
+  <button class="btn" data-c="sizeUp" title="Larger text (select some text first)">A+</button>
+  <button class="btn" data-c="colour" title="Text colour">Colour</button>
+  <span class="seg" id="fmtPal" hidden></span>
+</div>
 <div class="pill" id="linebar" hidden>
   <div class="seg" data-prop="arrow"><button class="btn" data-val="none">Plain</button><button class="btn" data-val="end">Arrow</button><button class="btn" data-val="both">Both ends</button></div>
   <div class="seg" data-prop="dash"><button class="btn" data-val="solid">Solid</button><button class="btn" data-val="dashed">Dashed</button><button class="btn" data-val="dotted">Dotted</button></div>
@@ -337,22 +478,13 @@
     <button class="btn sw" data-val="ink" style="--c: var(--ink)" aria-label="Default colour"></button><button class="btn sw" data-val="blue" style="--c: var(--accent)" aria-label="Blue"></button><button class="btn sw" data-val="red" style="--c: var(--bad)" aria-label="Red"></button><button class="btn sw" data-val="green" style="--c: var(--ok)" aria-label="Green"></button><button class="btn sw" data-val="amber" style="--c: #d99a00" aria-label="Amber"></button>
   </div>
 </div>
-<div class="pill" id="colorbar" hidden><span class="lab">Colour</span><div class="seg" data-prop="color"></div></div>
+<div class="pill" id="colorbar" hidden><span class="lab">Card colour</span><div class="seg" data-prop="color"></div></div>
+<div class="pill" id="inkbar" hidden><span class="lab">Pen</span><div class="seg" data-prop="ink"></div></div>
 <div class="pill" id="iconbar" hidden><span class="lab">Icon</span><div class="seg" data-prop="icon"></div></div>
-<div class="pill" id="fmt" hidden>
-  <button class="btn" data-c="bold" title="Bold (Ctrl+B)"><b>B</b></button>
-  <button class="btn" data-c="italic" title="Italic (Ctrl+I)"><i>I</i></button>
-  <button class="btn" data-c="underline" title="Underline (Ctrl+U)"><u>U</u></button>
-  <button class="btn" data-c="strikeThrough" title="Strikethrough"><s>S</s></button>
-  <button class="btn" data-c="insertUnorderedList" title="Bulleted list">&bull; List</button>
-  <button class="btn" data-c="insertOrderedList" title="Numbered list">1. List</button>
-  <button class="btn" data-c="heading" title="Heading">Heading</button>
-</div>
 </div>
 <div id="canvas"></div>
-<div id="hint">Add a note, to-do, link, image, column or board from the toolbar.<br>Drag empty space to select cards. Scroll to pan, Ctrl+scroll to zoom. Double-click a card to edit it.<br>Ctrl+C, Ctrl+V and Ctrl+D copy, paste and duplicate. Press / to search.</div>
+<div id="hint">Add a note, to-do, link, image, column or board from the toolbar.<br>Drag empty space to select cards. Scroll to pan, Ctrl+scroll to zoom. Double-click a card to edit it.<br>Ctrl+C, Ctrl+V and Ctrl+D copy, paste and duplicate; Alt-drag copies. Arrow keys nudge (Shift: further). Press / to search.</div>
 <div id="marquee" hidden></div>
-<div class="pill" id="drawbar" hidden>Drawing: every stroke is saved as you lift the pen. Press Esc to stop.</div>
 <div class="pill" id="zoom"><button class="btn" id="zfit" title="Fit all cards on screen (Shift+1)">Fit</button><button class="btn" id="zout" aria-label="Zoom out">-</button><button class="btn" id="zreset" title="Reset zoom">100%</button><button class="btn" id="zin" aria-label="Zoom in">+</button></div>
 <div id="trash"></div>
 
@@ -372,12 +504,12 @@ const rid = () => Math.random().toString(36).slice(2, 8);
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const capture = (el, pointerId) => { try { el.setPointerCapture(pointerId); } catch {} }; // reparenting a card releases capture; a stale id throws
 
-const KIND = { CARD: "note", COLUMN: "column", BOARD: "board", TASK_LIST: "todo", LINK: "link", IMAGE: "image", LINE: "line", SKETCH: "sketch", COMMENT_THREAD: "comment", TABLE: "sheet" };
-const LABEL = { CARD: "Note", COLUMN: "Column", BOARD: "Board", TASK_LIST: "To-do", LINK: "Link", IMAGE: "Image", LINE: "Line", SKETCH: "Drawing", COMMENT_THREAD: "Comment", TABLE: "Table" };
+const KIND = { CARD: "note", COLUMN: "column", BOARD: "board", TASK_LIST: "todo", LINK: "link", IMAGE: "image", LINE: "line", SKETCH: "sketch", COMMENT_THREAD: "comment", TABLE: "sheet", SWATCH: "swatch" };
+const LABEL = { CARD: "Note", COLUMN: "Column", BOARD: "Board", TASK_LIST: "To-do", LINK: "Link", IMAGE: "Image", LINE: "Line", SKETCH: "Drawing", COMMENT_THREAD: "Comment", TABLE: "Table", SWATCH: "Colour" };
 const ASPECT = new Set(["IMAGE", "SKETCH"]); // resized by scaling, so their height follows their width
 const NS = "http://www.w3.org/2000/svg";
 // the content field shown in a card's editable text (images have none)
-const FIELD = { CARD: "textContent", COLUMN: "title", BOARD: "title", TASK_LIST: "title", LINK: "url" };
+const FIELD = { IMAGE: "caption", CARD: "textContent", COLUMN: "title", BOARD: "title", TASK_LIST: "title", LINK: "url" };
 const DEFAULT = { COLUMN: "Column", BOARD: "Untitled board", TASK_LIST: "To-do list", LINK: "Paste a link" };
 // board tile icons: simple outline glyphs, one family, drawn in the tile's foreground colour
 const ICONS = Object.fromEntries(Object.entries({
@@ -399,7 +531,7 @@ const TINTS = ["sage", "teal", "sand", "orange", "slate", "rose", "lilac"];
 // A colour is either a palette name or a custom #rrggbb. Custom values come from other clients and end up in CSS, so only this exact shape is accepted.
 const HEX = /^#[0-9a-f]{6}$/i;
 const colourKey = (v) => (HEX.test(v ?? "") ? "custom" : v ?? ""); // what a swatch row marks as "on" for a stored value
-const COLOURABLE = new Set(["CARD", "TASK_LIST", "LINK", "COLUMN", "COMMENT_THREAD", "BOARD", "TABLE"]); // cards that take a colour
+const COLOURABLE = new Set(["CARD", "TASK_LIST", "LINK", "COLUMN", "COMMENT_THREAD", "BOARD", "TABLE", "IMAGE"]); // cards that take a colour
 let counts = {}; // board id -> { boards, cards }: computed by the server for each board tile
 const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
 const countText = ({ boards, cards }) => [boards && plural(boards, "board"), (cards || !boards) && plural(cards, "card")].filter(Boolean).join(", ");
@@ -408,8 +540,9 @@ const HTML = {
   COLUMN: '<div class="title"></div><div class="kids"></div>',
   BOARD: '<div class="tile"></div><div class="title"></div><div class="sub"></div>',
   TASK_LIST: '<div class="title"></div><div class="tasks"></div><button class="btn add-task">+ Add task</button><div class="meta"></div>',
-  LINK: '<img class="thumb" draggable="false" alt="" hidden><div class="domain"></div><div class="ptitle"></div><div class="pdesc"></div><div class="title"></div><a class="btn go" target="_blank" rel="noopener noreferrer" hidden>Open</a>',
-  IMAGE: '<img draggable="false" alt="">',
+  LINK: '<img class="thumb" draggable="false" alt="" hidden><div class="domain"></div><div class="ptitle"></div><div class="pdesc"></div><div class="title"></div><a class="btn go" target="_blank" rel="noopener noreferrer" hidden>Open</a> <button class="btn pic" title="Use your own picture for this link (or paste one while it is selected)">Image</button>',
+  IMAGE: '<div class="frame"><img draggable="false" alt=""><div class="pins"></div><div class="crop" data-nodrag hidden><i class="ch tl"></i><i class="ch br"></i></div></div><div class="title"></div><div class="img-tools"><button class="btn pal" title="Make colour cards from this picture">Colours</button><button class="btn cropb">Crop</button><button class="btn resetb" hidden>Reset</button><button class="btn pinb" title="Click the picture to leave a numbered note on it">Pin</button><button class="btn rotb" title="Turn the picture 90 degrees clockwise">Rotate</button><button class="btn openb">Open</button></div>',
+  SWATCH: '<div class="chip"></div><div class="hex"></div>',
   TABLE: '<div class="tbl"><table><tbody></tbody></table></div><div class="tbl-tools"><button class="btn" data-t="row">+ Row</button><button class="btn" data-t="col">+ Column</button><button class="btn" data-t="drow">- Row</button><button class="btn" data-t="dcol">- Column</button></div>',
   LINE: '<svg><path class="hit"/><path class="vis"/><path class="head"/><circle class="h h1" r="6"/><circle class="h h2" r="6"/></svg>',
   SKETCH: '<svg><path class="hit"/><path class="ink"/></svg>',
@@ -429,7 +562,21 @@ function safeUrl(v) {
 // Rich note text is stored as a small subset of HTML next to the plain text. It also arrives from other users, pastes and imported files,
 // so it is rebuilt through an allow-list every time it is saved, pasted or shown: only these tags, no attributes except a link's href
 // (http/https only), and scripts, styles, frames and the like are dropped with their content.
-const RICH = new Set(["B", "STRONG", "I", "EM", "U", "S", "STRIKE", "UL", "OL", "LI", "BR", "P", "DIV", "H1", "H2", "H3", "A"]);
+const RICH = new Set(["B", "STRONG", "I", "EM", "U", "S", "STRIKE", "UL", "OL", "LI", "BR", "P", "DIV", "H1", "H2", "H3", "A", "MARK", "BLOCKQUOTE", "PRE", "SPAN"]);
+// A span carries only a text colour and a size, rebuilt from values that are checked here (a hex colour, a size in px), never copied as written: no other style survives.
+const hexOf = (v) => {
+  v = String(v ?? "").trim().toLowerCase();
+  let m;
+  if (/^#[0-9a-f]{6}$/.test(v)) return v;
+  if ((m = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/.exec(v))) return "#" + m[1] + m[1] + m[2] + m[2] + m[3] + m[3];
+  if ((m = /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*[\d.]+\s*)?\)$/.exec(v))) return "#" + [m[1], m[2], m[3]].map((n) => Math.min(255, +n).toString(16).padStart(2, "0")).join("");
+  return "";
+};
+const SIZE_WORDS = { "x-small": 10, small: 13, medium: 16, large: 18, "x-large": 24, "xx-large": 32, "xxx-large": 48 };
+const BASE_SIZE = 14; // note text; a span that says the same adds nothing and is dropped
+const sizeOf = (v) => { v = String(v ?? "").trim().toLowerCase(); const px = SIZE_WORDS[v] ?? (/^\d+(\.\d+)?px$/.test(v) ? Math.round(parseFloat(v)) : 0); return px >= 8 && px <= 96 && px !== BASE_SIZE ? px : 0; };
+const spanStyle = (c) => [hexOf(c.style.color) && "color:" + hexOf(c.style.color), sizeOf(c.style.fontSize) && "font-size:" + sizeOf(c.style.fontSize) + "px"].filter(Boolean).join(";");
+const ALIGNABLE = new Set(["DIV", "P", "H1", "H2", "H3", "BLOCKQUOTE", "LI"]); // the one attribute besides href that survives: align="center"
 const DROP = new Set(["SCRIPT", "STYLE", "IFRAME", "OBJECT", "EMBED", "TEMPLATE", "NOSCRIPT", "SVG", "MATH", "LINK", "META", "TITLE", "HEAD", "FORM", "INPUT", "TEXTAREA", "BUTTON", "AUDIO", "VIDEO", "CANVAS"]);
 function cleanNode(node) {
   for (const c of [...node.childNodes]) {
@@ -438,7 +585,11 @@ function cleanNode(node) {
     if (c.nodeType !== 1 || DROP.has(tag)) { c.remove(); continue; }
     cleanNode(c);
     if (!RICH.has(tag)) { c.replaceWith(...c.childNodes); continue; } // an unknown tag: keep its text, lose the tag
+    const centred = ALIGNABLE.has(tag) && (c.getAttribute("align") === "center" || /text-align:\s*center/i.test(c.getAttribute("style") ?? "")); // the editor writes a style, we keep only the meaning
+    const css = tag === "SPAN" ? spanStyle(c) : "";
     for (const a of [...c.attributes]) if (!(tag === "A" && a.name === "href")) c.removeAttribute(a.name);
+    if (centred) c.setAttribute("align", "center");
+    if (tag === "SPAN") { if (css) c.setAttribute("style", css); else { c.replaceWith(...c.childNodes); continue; } } // a span with nothing we allow is just its text
     if (tag === "A") {
       const u = safeUrl(c.getAttribute("href") ?? "");
       if (!u) { c.replaceWith(...c.childNodes); continue; }
@@ -451,7 +602,7 @@ function cleanHtml(html) {
   cleanNode(doc.body);
   return doc.body.innerHTML;
 }
-const hasFormatting = (html) => /<(b|strong|i|em|u|s|strike|ul|ol|li|h[1-3]|a)[\s>]/i.test(html); // plain notes stay plain: no html is stored for them
+const hasFormatting = (html) => /<(b|strong|i|em|u|s|strike|ul|ol|li|h[1-3]|a|mark|blockquote|pre|span)[\s>]|align="center"/i.test(html); // plain notes stay plain: no html is stored for them
 
 // --- view: pan and zoom ------------------------------------------------------------------------
 // screen = board * z + (x, y). Cards are positioned in board coordinates inside #canvas, which carries the transform.
@@ -491,21 +642,28 @@ function fit() {
   applyView();
 }
 $("zfit").onclick = fit;
+const ZOOM_STEP = 1.15; // one turn of the mouse wheel, one click of + or -, one Ctrl+plus/minus: 15%
 function zoomAt(factor, cx = innerWidth / 2, cy = innerHeight / 2) {
-  const z = clamp(view.z * factor, 0.25, 2);
+  let z = clamp(view.z * factor, 0.25, 2);
+  z = Math.abs(z - 1) < 0.02 ? 1 : Math.round(z * 1000) / 1000; // steps come back to exactly 100%, no 0.9999 noise
   view.x = cx - (cx - view.x) * (z / view.z); // keep the board point under the cursor where it is
   view.y = cy - (cy - view.y) * (z / view.z);
   view.z = z; applyView();
 }
 const resetView = () => { view = { x: 0, y: 0, z: 1 }; applyView(); };
-$("zin").onclick = () => zoomAt(1.2);
-$("zout").onclick = () => zoomAt(1 / 1.2);
+$("zin").onclick = () => zoomAt(ZOOM_STEP);
+$("zout").onclick = () => zoomAt(1 / ZOOM_STEP);
 $("zreset").onclick = resetView;
 addEventListener("wheel", (e) => {
   const msgs = e.target.closest?.(".msgs");
   if (e.target.closest?.("#trash") || (msgs && msgs.scrollHeight > msgs.clientHeight)) return; // let the Trash list and long comment threads scroll
   e.preventDefault();
-  if (e.ctrlKey || e.metaKey) zoomAt(Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY); // trackpad pinch also arrives as ctrl+wheel
+  if (e.ctrlKey || e.metaKey) {
+    // A mouse wheel reports about 100 or more per notch (it depends on the device and its settings), so a notch is ONE fixed step. A trackpad pinch also arrives
+    // as ctrl+wheel but in small fractions, and that stays proportional to how far the fingers moved.
+    const notch = e.deltaMode !== 0 || Math.abs(e.deltaY) >= 50;
+    zoomAt(notch ? (e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP) : Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
+  }
   else { view.x -= e.deltaX; view.y -= e.deltaY; applyView(); }
 }, { passive: false });
 
@@ -603,7 +761,11 @@ const markBar = (bar, items, val) => {
 function syncBars() {
   const picked = [...sel].map((id) => els[id]).filter(Boolean);
   const lines = picked.filter((e) => e.elementType === "LINE"), tintable = picked.filter((e) => COLOURABLE.has(e.elementType)), boards = picked.filter((e) => e.elementType === "BOARD");
-  $("linebar").hidden = !lines.length; $("colorbar").hidden = !tintable.length; $("iconbar").hidden = !boards.length;
+  const sketches = picked.filter((e) => e.elementType === "SKETCH");
+  $("linebar").hidden = !lines.length; $("colorbar").hidden = !tintable.length; $("iconbar").hidden = !boards.length; $("inkbar").hidden = !sketches.length;
+  $("imgbar").hidden = picked.filter((e) => e.elementType === "IMAGE").length !== 1; syncImgBar(); // picture options for exactly one picture
+  markBar($("inkbar"), sketches, (e) => (INK.some(([v]) => v && v === e.content.color) ? e.content.color : colourKey(e.content.color)));
+  showCustom($("inkbar"), sketches.map((e) => e.content.color).filter((c) => !INK.some(([v]) => v === c)));
   markBar($("linebar"), lines, (e, p) => (p === "color" ? colourKey(lineProp(e.content, p)) : lineProp(e.content, p)));
   markBar($("colorbar"), tintable, (e) => colourKey(e.content.color));
   showCustom($("colorbar"), tintable.map((e) => e.content.color));
@@ -613,6 +775,10 @@ function syncBars() {
 // swatches and icon buttons are generated from the palette so they cannot drift from what render() accepts
 // the rainbow button opens the colour picker; once a custom colour is in use it shows that colour instead
 const CUSTOM = '<button class="btn sw custom" data-val="custom" aria-label="Custom colour" title="Custom colour"></button>';
+// colours for pens and for text. "" is the default: it follows the theme (light text on dark, dark on light), so it is the only one that adapts.
+const INK = [["", "Default (follows light/dark)"], ["#000000", "Black"], ["#ffffff", "White"], ["#e5484d", "Red"], ["#f76b15", "Orange"], ["#f5c400", "Yellow"], ["#30a46c", "Green"], ["#3e63dd", "Blue"], ["#8e4ec6", "Purple"], ["#d6409f", "Pink"]];
+const inkSwatch = (attr, v, name) => `<button class="btn sw${v ? "" : " none"}" ${attr}="${v}" ${v ? `style="--c: ${v}"` : ""} aria-label="${name}" title="${name}"></button>`;
+const inkSwatches = (attr = "data-val") => INK.map(([v, name]) => inkSwatch(attr, v, name)).join("");
 const showCustom = (bar, values) => {
   const used = [...new Set(values.filter((v) => HEX.test(v ?? "")))], b = bar.querySelector(".sw.custom");
   if (b) b.style.background = used.length === 1 ? used[0] : "";
@@ -626,12 +792,63 @@ const applyTo = (types, changes) => updateMany([...sel].filter((id) => types.has
 const firstHex = (values) => values.find((v) => HEX.test(v ?? ""));
 // the formatting bar shows while a note's text is being edited. Its buttons must not take focus from the text, so mousedown is cancelled.
 $("fmt").onmousedown = (e) => e.preventDefault();
-$("fmt").onclick = (e) => {
-  const b = e.target.closest("button[data-c]");
-  if (!b) return;
-  if (b.dataset.c === "heading") document.execCommand("formatBlock", false, document.queryCommandValue("formatBlock").toLowerCase() === "h3" ? "div" : "h3");
-  else document.execCommand(b.dataset.c);
+const toggleBlock = (tag) => document.execCommand("formatBlock", false, document.queryCommandValue("formatBlock").toLowerCase() === tag ? "div" : tag);
+const inside = (sel, tag) => (sel.anchorNode?.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode)?.closest?.(tag);
+function toggleMark() { // highlight: wrap the selection in <mark>, or unwrap when the caret is already in one
+  const s = getSelection(), m = s.rangeCount && inside(s, "mark");
+  if (m) return void m.replaceWith(...m.childNodes);
+  if (!s.rangeCount || s.isCollapsed) return;
+  const r = s.getRangeAt(0), mk = document.createElement("mark");
+  mk.append(r.extractContents()); r.insertNode(mk); s.selectAllChildren(mk);
+}
+function toggleLink() { // a link on the selection; on an existing link it removes it. Only http(s) addresses are kept.
+  const s = getSelection();
+  if (!s.rangeCount) return;
+  if (inside(s, "a")) return void document.execCommand("unlink");
+  if (s.isCollapsed) return;
+  const u = safeUrl(prompt("Link address", "https://") ?? "");
+  if (u) document.execCommand("createLink", false, u.href);
+}
+const FMT = {
+  heading: () => toggleBlock("h3"), quote: () => toggleBlock("blockquote"), code: () => toggleBlock("pre"),
+  highlight: toggleMark, link: toggleLink,
+  center: () => document.execCommand(document.queryCommandState("justifyCenter") ? "justifyLeft" : "justifyCenter"),
 };
+const noteText = () => document.querySelector(".note .text[contenteditable=true]");
+function textColour(hex) { // the browser writes the colour as a span; the sanitizer keeps it as a checked hex value
+  const t = noteText();
+  if (!t) return;
+  if (hex) { document.execCommand("styleWithCSS", false, true); document.execCommand("foreColor", false, hex); document.execCommand("styleWithCSS", false, false); return; }
+  const s = getSelection(), r = s.rangeCount && s.getRangeAt(0); // the default colour: take the colour off the spans the selection touches
+  if (r) t.querySelectorAll("span").forEach((sp) => { if (!r.intersectsNode(sp)) return; sp.style.removeProperty("color"); if (!sp.getAttribute("style")?.trim()) sp.replaceWith(...sp.childNodes); });
+}
+const TEXT_SIZES = [12, 14, 18, 24, 32];
+function textSize(step) { // one size up or down for the selected text, from the nearest size it has now
+  const t = noteText(), s = getSelection();
+  if (!t || !s.rangeCount || s.isCollapsed) return;
+  const at = s.anchorNode.nodeType === 3 ? s.anchorNode.parentElement : s.anchorNode, now = parseFloat(getComputedStyle(at).fontSize);
+  const i = TEXT_SIZES.reduce((best, v, k) => (Math.abs(v - now) < Math.abs(TEXT_SIZES[best] - now) ? k : best), 0), next = TEXT_SIZES[clamp(i + step, 0, TEXT_SIZES.length - 1)];
+  document.execCommand("styleWithCSS", false, true); document.execCommand("fontSize", false, "7"); document.execCommand("styleWithCSS", false, false); // the browser splits the text and marks the pieces...
+  t.querySelectorAll('span[style*="xxx-large"], font[size="7"]').forEach((m) => { m.removeAttribute("size"); m.style.fontSize = next + "px"; }); // ...and we give them the size we want
+}
+Object.assign(FMT, { sizeUp: () => textSize(1), sizeDown: () => textSize(-1), colour: () => { $("fmtPal").hidden = !$("fmtPal").hidden; } });
+$("fmtPal").innerHTML = inkSwatches("data-color");
+$("fmt").onclick = (e) => {
+  const sw = e.target.closest("[data-color]");
+  if (sw) return void textColour(sw.dataset.color);
+  const b = e.target.closest("button[data-c]");
+  if (b) (FMT[b.dataset.c] ?? (() => document.execCommand(b.dataset.c)))();
+};
+// Markdown as you type: "#", ".", "-", "1." or ">" alone at the start of a line, then Space, turns the line into a heading, list or quote
+const MD = { "#": FMT.heading, ".": () => document.execCommand("insertUnorderedList"), "-": () => document.execCommand("insertUnorderedList"), "1.": () => document.execCommand("insertOrderedList"), ">": FMT.quote };
+function markdownShortcut(root) {
+  const s = getSelection(), n = s.anchorNode, run = MD[n?.data?.slice(0, s.anchorOffset)];
+  if (!run || !s.isCollapsed || n.nodeType !== 3 || s.anchorOffset !== n.data.length || n.previousSibling || (n.parentElement !== root && n.parentElement.textContent !== n.data)) return false;
+  const br = document.createElement("br"), at = n.parentNode; // the token goes; an empty line is left for the block to wrap
+  n.replaceWith(br); s.collapse(at, [...at.childNodes].indexOf(br));
+  run();
+  return true;
+}
 addEventListener("focusin", (e) => { $("fmt").hidden = !e.target.matches?.(".note .text[contenteditable=true]"); });
 addEventListener("focusout", (e) => { if (e.target.matches?.(".note .text")) $("fmt").hidden = true; });
 $("colorbar").onclick = (e) => {
@@ -640,6 +857,25 @@ $("colorbar").onclick = (e) => {
   if (b.dataset.val === "custom") return openPicker(firstHex([...sel].map((id) => els[id]?.content.color)), (hex) => applyTo(COLOURABLE, { color: hex }));
   applyTo(COLOURABLE, { color: b.dataset.val || null });
 };
+$("inkbar").querySelector(".seg").innerHTML = inkSwatches() + CUSTOM;
+$("inkbar").onclick = (e) => { // recolour the selected drawings
+  const b = e.target.closest("button[data-val]");
+  if (!b) return;
+  const ink = new Set(["SKETCH"]);
+  if (b.dataset.val === "custom") return openPicker(firstHex([...sel].map((id) => els[id]?.content.color)), (hex) => applyTo(ink, { color: hex }));
+  applyTo(ink, { color: b.dataset.val || null });
+};
+// The picture options in the options panel press the buttons the picture card itself keeps (hidden): crop, pins, colours, open. The logic stays in one place.
+const pictureCard = () => (sel.size === 1 && els[[...sel][0]]?.elementType === "IMAGE" ? $([...sel][0]) : null);
+function syncImgBar() {
+  const d = pictureCard();
+  if (!d) return;
+  $("imgCrop").textContent = d.querySelector(".cropb").textContent; $("imgReset").hidden = d.querySelector(".resetb").hidden;
+  $("imgPin").classList.toggle("on", d.classList.contains("pinning"));
+}
+for (const [id, press] of [["imgPal", ".pal"], ["imgCrop", ".cropb"], ["imgReset", ".resetb"], ["imgPin", ".pinb"], ["imgOpen", ".openb"]]) $(id).onclick = () => { pictureCard()?.querySelector(press).click(); syncImgBar(); };
+$("imgRotate").onclick = () => { const d = pictureCard(); if (d && !d.classList.contains("cropping")) rotateImage(els[d.id]); };
+$("imgDownload").onclick = () => { const d = pictureCard(); if (d) downloadImage(els[d.id]); };
 $("iconbar").onclick = (e) => { const b = e.target.closest("button[data-val]"); if (b) applyTo(new Set(["BOARD"]), { icon: b.dataset.val }); };
 
 // --- colour picker ----------------------------------------------------------------------------------
@@ -783,16 +1019,18 @@ function taskRow(t) {
   row.dataset.id = t.id;
   row.append(
     Object.assign(document.createElement("input"), { type: "checkbox", name: "done", checked: !!t.done }),
-    Object.assign(document.createElement("input"), { type: "text", name: "task", value: t.text ?? "", placeholder: "Task" }),
+    Object.assign(document.createElement("textarea"), { name: "task", value: t.text ?? "", placeholder: "Task", rows: 1 }),
   );
   return row;
 }
+const grow = (t) => { if (!CSS.supports("field-sizing", "content")) { t.style.height = "auto"; t.style.height = t.scrollHeight + "px"; } }; // browsers without field-sizing: size the box by hand
 const taskMeta = (d) => {
   const rows = [...d.querySelectorAll(".task")], done = rows.filter((r) => r.children[0].checked).length;
   d.querySelector(".meta").textContent = rows.length ? `${done} of ${rows.length} done` : "";
 };
 
 function render(el) {
+  if ($("outline").hidden === false) scheduleOutline(); // the outline follows the board while it is open
   const type = el.elementType;
   if (!KIND[type]) return;
   let d = $(el.id);
@@ -805,6 +1043,10 @@ function render(el) {
   d.classList.toggle("selected", sel.has(el.id));
   d.classList.toggle("cut", cutIds.has(el.id));
   if (COLOURABLE.has(type)) applyTint(d, el.content.color, type === "BOARD");
+  if (type === "IMAGE") d.style.color = ""; // a picture's colour is a strip along its top edge, so its caption keeps the normal text colour
+  d.classList.toggle("locked", !!el.content.locked); // position locked: it cannot be dragged or resized, but can still be edited
+  d.classList.toggle("heading", type === "CARD" && !!el.content.heading);
+  d.style.zIndex = Number.isFinite(el.content.z) ? el.content.z : ""; // Bring to Front / Send to Back
   if (type === "BOARD") {
     const tile = d.querySelector(".tile"), icon = ICON_NAMES.includes(el.content.icon) ? el.content.icon : "grid";
     if (tile.dataset.icon !== icon) { tile.dataset.icon = icon; tile.innerHTML = ICONS[icon]; }
@@ -830,19 +1072,28 @@ function render(el) {
   if (type === "COLUMN") Object.values(els).filter((k) => k.location.parentId === el.id).forEach(render); // cards that came back with a restored column
   if (type === "LINK") {
     const u = safeUrl(el.content.url || ""), a = d.querySelector(".go");
+    for (const [k, c] of [["hideImage", "no-img"], ["hideDesc", "no-desc"], ["hideUrl", "no-url"]]) d.classList.toggle(c, !!el.content[k]); // the card's parts can be hidden from its menu
     d.querySelector(".domain").textContent = u ? el.content.previewSite || u.hostname : "";
     d.querySelector(".ptitle").textContent = u ? el.content.previewTitle ?? "" : ""; // textContent: the page's own words are never parsed as HTML
     d.querySelector(".pdesc").textContent = u ? el.content.previewDesc ?? "" : "";
     const th = d.querySelector(".thumb"), pid = String(el.content.previewImage ?? "");
     if (u && /^[0-9a-f-]{36}$/.test(pid)) { if (!th.src.endsWith("/api/media/" + pid)) { th.onload = () => relayout(d.id); th.onerror = () => { th.hidden = true; relayout(d.id); }; th.src = "/api/media/" + pid; } th.hidden = false; } else { th.hidden = true; th.removeAttribute("src"); }
     a.hidden = !u; u ? (a.href = u.href) : a.removeAttribute("href");
+    const bid = u && el.content.boardId; // a shortcut to a board of this app opens it in the same tab
+    d.classList.toggle("shortcut", !!bid);
+    if (bid) { a.href = "#" + bid; a.removeAttribute("target"); a.removeAttribute("rel"); } else { a.target = "_blank"; a.rel = "noopener noreferrer"; }
   }
   if (type === "TASK_LIST") {
     const list = d.querySelector(".tasks");
     if (!list.contains(document.activeElement)) { // don't rebuild the list under someone who is typing in it
       list.replaceChildren(...(el.content.tasks ?? []).map(taskRow));
+      list.querySelectorAll("textarea").forEach(grow);
       taskMeta(d);
     }
+  }
+  if (type === "SWATCH") {
+    const hex = HEX.test(el.content.color ?? "") ? el.content.color.toLowerCase() : "#cccccc";
+    d.querySelector(".chip").style.background = hex; d.querySelector(".hex").textContent = hex;
   }
   if (type === "TABLE") {
     const body = d.querySelector("tbody"), rows = tableRows(el.content), typing = body.contains(document.activeElement);
@@ -863,6 +1114,8 @@ function render(el) {
     const { w = 1, h = 1, paths = [] } = el.content, svg = d.querySelector("svg");
     svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
     svg.querySelectorAll("path").forEach((p) => p.setAttribute("d", paths.map(pathD).join("")));
+    const ink = HEX.test(el.content.color ?? "") ? el.content.color : ""; // no colour: the theme's ink
+    svg.querySelectorAll(".ink").forEach((p) => (p.style.stroke = ink));
   }
   if (type === "COMMENT_THREAD") {
     const list = d.querySelector(".msgs");
@@ -877,8 +1130,9 @@ function render(el) {
   }
   if (type === "IMAGE") {
     const img = d.querySelector("img"), id = String(el.content.mediaId ?? "");
-    if (/^[0-9a-f-]{36}$/.test(id) && !img.src.endsWith("/api/media/" + id)) { img.onload = () => relayout(d.id); img.src = "/api/media/" + id; } // the card's height is only known once the image has loaded
+    if (/^[0-9a-f-]{36}$/.test(id) && !img.src.endsWith("/api/media/" + id)) { img.onload = () => { fitImage(d); relayout(d.id); }; img.src = "/api/media/" + id; } // the card's height is only known once the image has loaded
     img.alt = el.content.name || "Image";
+    fitImage(d);
   }
   // last, once the card has its final size: option bars, lines attached to this card, search matches
   if (sel.has(el.id)) syncBars();
@@ -996,10 +1250,11 @@ function wire(d) {
   d.onpointerdown = (e) => {
     if (e.button === 1 || spaceDown || tool) return; // panning or drawing a line/sketch: let it bubble to the document handler
     e.stopPropagation(); // a card inside a column must not also start dragging the column
-    if (e.button !== 0 || e.target.closest("a, input, button") || editing(d)) return; // controls and text being edited keep their own mouse behaviour
+    if (e.button !== 0 || e.target.closest("a, input, textarea, button, [data-nodrag]") || editing(d)) return; // controls and text being edited keep their own mouse behaviour
     e.preventDefault(); // a real mouse would otherwise start a text selection / native drag
     capture(d, e.pointerId); d.focus({ preventScroll: true });
     if (e.target.classList.contains("grip")) {
+      if (el().content.locked) return;
       const r = d.getBoundingClientRect(), g = e.target.classList;
       resize = { x0: e.clientX, y0: e.clientY, w0: r.width / view.z, h0: r.height / view.z, dir: g.contains("se") ? "se" : g.contains("s") ? "s" : "e" };
       return;
@@ -1007,7 +1262,7 @@ function wire(d) {
     if (e.target.classList.contains("h")) { handle = { which: e.target.classList.contains("h1") ? 1 : 2 }; return; } // a line's endpoint
     const mod = e.shiftKey || e.ctrlKey || e.metaKey, was = sel.has(d.id);
     if (!was) setSel(mod ? [...sel, d.id] : [d.id]);
-    drag = { sx: e.clientX, sy: e.clientY, moved: false, mod, was };
+    drag = { sx: e.clientX, sy: e.clientY, moved: false, mod, was, alt: e.altKey }; // Alt held at the start: the drop makes a copy
   };
 
   d.onpointermove = (e) => {
@@ -1038,7 +1293,7 @@ function wire(d) {
       drag.moved = true;
       // lift the whole selection out of its parents into the zoomed canvas, keeping each card's size and place on screen
       // a line attached to a card is not dragged on its own: it follows its cards
-      drag.group = tops([...sel]).map((id) => $(id)).filter((g) => g && !attached(els[g.id])).map((g) => {
+      drag.group = tops([...sel]).map((id) => $(id)).filter((g) => g && !attached(els[g.id]) && !els[g.id].content.locked).map((g) => {
         const r = g.getBoundingClientRect(), p = toBoard(r.left, r.top);
         return { g, x: p.x, y: p.y, w: r.width / view.z };
       });
@@ -1072,7 +1327,7 @@ function wire(d) {
       return;
     }
     if (!drag) return;
-    const { moved, mod, was } = drag, group = drag.group; drag = null;
+    const { moved, mod, was, alt } = drag, group = drag.group; drag = null;
     $("trashBtn").classList.remove("drop"); mark(null);
     if (!moved) { // plain click: a modifier-click on a selected card deselects it; a click inside a group narrows the selection to it
       if (mod && was) setSel([...sel].filter((id) => id !== d.id));
@@ -1084,6 +1339,11 @@ function wire(d) {
     if (overTrash(e.clientX, e.clientY)) return void trashIds(ids);
     const tgt = okTarget(targetUnder(e.clientX, e.clientY, gs), gs);
     if (tgt?.classList.contains("board")) return void moveIntoBoard(group, tgt);
+    if (alt && !tgt) { // Alt-drag onto the canvas: the originals go back where they were and a copy lands at the drop point
+      const at = { x: Math.min(...group.map((it) => parseFloat(it.g.style.left))), y: Math.min(...group.map((it) => parseFloat(it.g.style.top))) };
+      group.forEach((it) => render(els[it.g.id]));
+      return void snapshot().then((c) => c && place(c, at));
+    }
     const col = tgt;
     if (col) {
       const top = Math.max(0, ...[...col.querySelector(".kids").children].filter((c) => !gs.includes(c)).map(score));
@@ -1094,6 +1354,7 @@ function wire(d) {
   };
 
   const startEdit = () => {
+    if (type() === "SWATCH") return openPicker(el().content.color, (hex) => update(el(), { color: hex }));
     if (!t) { (d.querySelector(".reply") ?? d.querySelector(".cell"))?.focus(); return; } // comments: the reply box; tables: the first cell
 
     t.contentEditable = "true"; t.focus();
@@ -1104,10 +1365,10 @@ function wire(d) {
   d.startEdit = startEdit;
   d.ondblclick = (e) => {
     e.stopPropagation();
-    if (e.target.closest("a, input, button") || e.target.classList.contains("grip")) return;
+    if (e.target.closest("a, input, textarea, button") || e.target.classList.contains("grip")) return;
     if (type() === "BOARD") location.hash = d.id; // open it; F2 renames
-    else if (type() === "IMAGE") open(d.querySelector("img").src, "_blank", "noopener");
-    else if (type() === "CARD" || type() === "LINK" || e.target.closest(".title")) startEdit();
+    else if (type() === "IMAGE") startEdit(); // the caption
+    else if (type() === "CARD" || type() === "LINK" || type() === "SWATCH" || e.target.closest(".title")) startEdit();
   };
 
   const value = () => (type() === "CARD" ? t.innerText : t.innerText.replace(/\s+/g, " ").trim());
@@ -1135,9 +1396,9 @@ function wire(d) {
   // to-do lists: the whole task array is the unit of update (compare-and-swap on the card's version)
   const commitTasks = () => {
     clearTimeout(taskTimer); taskPending = false; taskMeta(d);
-    return update(el(), { tasks: [...d.querySelectorAll(".task")].map((r) => ({ id: r.dataset.id, text: r.children[1].value, done: r.children[0].checked })) });
+    return update(el(), { tasks: [...d.querySelectorAll(".task")].map((r) => ({ id: r.dataset.id, text: r.children[1].value.replace(/\s*\n+\s*/g, " "), done: r.children[0].checked })) });
   };
-  d.addEventListener("input", (e) => { if (e.target.matches(".task input[type=text]")) { taskPending = true; clearTimeout(taskTimer); taskTimer = setTimeout(commitTasks, 400); } });
+  d.addEventListener("input", (e) => { if (e.target.matches(".task textarea")) { grow(e.target); taskPending = true; clearTimeout(taskTimer); taskTimer = setTimeout(commitTasks, 400); } });
   d.addEventListener("change", (e) => { if (e.target.matches(".task input[type=checkbox]")) commitTasks(); });
   const addTask = (after) => {
     const row = taskRow({ id: rid(), text: "", done: false });
@@ -1187,7 +1448,7 @@ function wire(d) {
     tr.after(row); row.children[i].querySelector(".cell").focus(); commitTable();
   };
   const taskKey = (e) => {
-    if (e.target.type !== "text") return;
+    if (e.target.tagName !== "TEXTAREA") return;
     const row = e.target.closest(".task");
     if (e.key === "Enter") { e.preventDefault(); addTask(row); commitTasks(); }
     else if (e.key === "Backspace" && !e.target.value) {
@@ -1208,12 +1469,76 @@ function wire(d) {
     if (r.status === 200) addMessage(el(), r.message); else { reply.value = text; flash("Could not post that comment"); }
   });
 
+  d.querySelector(".pal")?.addEventListener("click", () => paletteFrom(d));
+  if (d.querySelector(".frame")) { // picture tools: open, crop, pins
+    const box = d.querySelector(".crop"), frame = d.querySelector(".frame"), cropb = d.querySelector(".cropb"), resetb = d.querySelector(".resetb");
+    let cb = null;
+    const setBox = (b) => { cb = b; Object.assign(box.style, { left: b.x * 100 + "%", top: b.y * 100 + "%", width: b.w * 100 + "%", height: b.h * 100 + "%" }); };
+    const endCrop = () => { d.classList.remove("cropping"); box.hidden = true; cropb.textContent = "Crop"; resetb.hidden = true; fitImage(d); relayout(d.id); };
+    d.querySelector(".openb").addEventListener("click", () => open(d.querySelector("img").src, "_blank", "noopener"));
+    d.querySelector(".rotb").addEventListener("click", () => { if (!d.classList.contains("cropping")) rotateImage(el()); });
+    cropb.addEventListener("click", () => {
+      if (!d.classList.contains("cropping")) { // show the whole picture with the crop rectangle on it
+        d.classList.add("cropping"); d.classList.remove("pinning"); fitImage(d);
+        setBox(cropOf(el().content) ?? { x: 0.1, y: 0.1, w: 0.8, h: 0.8 }); box.hidden = false; cropb.textContent = "Done"; resetb.hidden = false; relayout(d.id);
+        return;
+      }
+      const r = (n) => Math.round(n * 10000) / 10000, whole = cb.w > 0.99 && cb.h > 0.99;
+      endCrop(); update(el(), { crop: whole ? null : { x: r(cb.x), y: r(cb.y), w: r(cb.w), h: r(cb.h) } });
+    });
+    resetb.addEventListener("click", () => { endCrop(); if (el().content.crop) update(el(), { crop: null }); });
+    box.addEventListener("pointerdown", (e) => {
+      e.preventDefault(); e.stopPropagation(); box.setPointerCapture(e.pointerId);
+      const fr = frame.getBoundingClientRect(), s0 = { ...cb }, mode = e.target.classList.contains("tl") ? "tl" : e.target.classList.contains("br") ? "br" : "move", sx = e.clientX, sy = e.clientY;
+      box.onpointermove = (m) => {
+        const dx = (m.clientX - sx) / fr.width, dy = (m.clientY - sy) / fr.height;
+        let { x, y, w, h } = s0;
+        if (mode === "move") { x = clamp(x + dx, 0, 1 - w); y = clamp(y + dy, 0, 1 - h); }
+        else if (mode === "br") { w = clamp(w + dx, 0.05, 1 - x); h = clamp(h + dy, 0.05, 1 - y); }
+        else { const nx = clamp(x + dx, 0, x + w - 0.05), ny = clamp(y + dy, 0, y + h - 0.05); w += x - nx; h += y - ny; x = nx; y = ny; }
+        setBox({ x, y, w, h });
+      };
+      box.onpointerup = () => { box.onpointermove = null; };
+    });
+    d.querySelector(".pinb").addEventListener("click", () => { if (!d.classList.contains("cropping")) d.classList.toggle("pinning"); });
+    const editPin = (i) => {
+      const pins = [...(el().content.pins ?? [])], text = prompt("Note for this pin (leave empty to remove it)", pins[i]?.text ?? "");
+      if (text === null) return;
+      if (text.trim()) pins[i] = { ...pins[i], text: text.trim().slice(0, 300) }; else pins.splice(i, 1);
+      update(el(), { pins });
+    };
+    d.addEventListener("click", (e) => { // on the card, not the frame: a press on a card captures the pointer, so the click lands on the card itself
+      const pin = e.target.closest(".pin");
+      if (pin) return editPin(Number(pin.dataset.i));
+      if (e.target.closest("button") || !d.classList.contains("pinning") || (el().content.pins ?? []).length >= 30) return;
+      const fr = frame.getBoundingClientRect(), k = cropOf(el().content) ?? { x: 0, y: 0, w: 1, h: 1 };
+      if (e.clientX < fr.left || e.clientX > fr.right || e.clientY < fr.top || e.clientY > fr.bottom) return;
+      const x = k.x + ((e.clientX - fr.left) / fr.width) * k.w, y = k.y + ((e.clientY - fr.top) / fr.height) * k.h;
+      d.classList.remove("pinning");
+      const text = prompt("Note for this pin", "");
+      if (text?.trim()) update(el(), { pins: [...(el().content.pins ?? []), { x: Math.round(x * 10000) / 10000, y: Math.round(y * 10000) / 10000, text: text.trim().slice(0, 300) }] });
+    });
+  }
+  d.querySelector(".pic")?.addEventListener("click", () => { picFor = d.id; $("file").click(); });
+  t?.addEventListener("input", (e) => { // Enter after a highlight: the new line must not start highlighted (the browser would carry the style into what is typed)
+    if (e.inputType !== "insertParagraph" || type() !== "CARD") return;
+    const s = getSelection(), n = s.rangeCount && s.anchorNode, line = n && (n.nodeType === 3 ? n.parentElement : n).closest?.("div");
+    if (line && line !== t && !line.textContent && line.previousElementSibling?.lastElementChild?.tagName === "MARK") document.execCommand("removeFormat");
+    t.querySelectorAll("mark").forEach((m) => { if (!m.textContent) m.replaceWith(...m.childNodes); });
+  });
   d.onkeydown = (e) => {
     if (e.target.closest(".reply")) { e.stopPropagation(); return; }
     if (e.target.closest(".cell")) { e.stopPropagation(); return cellKey(e); }
     if (e.target.closest(".task")) { e.stopPropagation(); return taskKey(e); }
     if (editing(d)) {
       e.stopPropagation(); // keys typed in a card must never reach the column around it
+      if (type() === "CARD") {
+        const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
+        const blk = e.key === "Enter" && !e.shiftKey && getSelection().rangeCount && inside(getSelection(), "blockquote,pre"); // Enter on an empty quote/code line leaves the block, like a list
+        if (blk && !blk.textContent.trim()) { e.preventDefault(); document.execCommand("formatBlock", false, "div"); return; }
+        const run = e.key === " " && !mod ? () => markdownShortcut(t) || null : mod && k === "j" ? FMT.highlight : mod && k === "k" ? FMT.link : mod && e.key === "\\" ? FMT.center : mod && e.shiftKey && k === "x" ? () => document.execCommand("strikeThrough") : null;
+        if (run && run() !== null) { e.preventDefault(); return; } // a Space that is not a shortcut returns null and types normally
+      }
       if (e.key === "Escape" || (e.key === "Enter" && type() !== "CARD")) { e.preventDefault(); t.blur(); d.focus({ preventScroll: true }); }
     }
   };
@@ -1222,7 +1547,7 @@ function wire(d) {
 // --- document-level input: panning, marquee selection, keyboard ---------------------------------
 addEventListener("pointerdown", (e) => {
   if (!$("picker").hidden && !e.target.closest("#picker, .sw.custom")) closePicker(); // a click anywhere else dismisses the picker
-  if (e.target.closest("#tools, #top, #trash, #zoom, #drawbar, #ctx, #bgpop, #picker")) return;
+  if (e.target.closest("#tools, #top, #trash, #zoom, #drawbar, #ctx, #bgpop, #picker, #outline, #bpanel")) return;
   if (e.button === 1 || (spaceDown && e.button === 0)) { e.preventDefault(); return startPan(e); }
   if (e.button === 0 && tool === "line") { e.preventDefault(); return startLine(e); }
   if (e.button === 0 && tool === "draw") { e.preventDefault(); return startStroke(e); }
@@ -1253,6 +1578,24 @@ function startMarquee(e) {
   };
   addEventListener("pointermove", move); addEventListener("pointerup", up);
 }
+// arrow keys nudge the selected cards on the canvas (1px, Shift 10px). A burst of presses is shown at once and saved as ONE move after a short pause.
+let nudged = new Map(), nudgeTimer = 0;
+function nudge(e) {
+  const step = e.shiftKey ? 10 : 1, dx = { ArrowLeft: -step, ArrowRight: step }[e.key] ?? 0, dy = { ArrowUp: -step, ArrowDown: step }[e.key] ?? 0;
+  for (const id of tops([...sel])) {
+    const el = els[id];
+    if (el?.location.section !== "CANVAS" || el.content.locked || attached(el)) continue; // columns' children, locked cards and attached lines stay put
+    const o = nudged.get(id) ?? { x: el.location.position.x, y: el.location.position.y };
+    o.x += dx; o.y += dy; nudged.set(id, o);
+    Object.assign($(id).style, { left: o.x + "px", top: o.y + "px" }); relayout(id);
+  }
+  clearTimeout(nudgeTimer);
+  nudgeTimer = setTimeout(() => {
+    const items = [...nudged].filter(([id]) => els[id]).map(([id, o]) => ({ el: els[id], location: { ...els[id].location, position: { ...els[id].location.position, x: o.x, y: o.y } } }));
+    nudged = new Map();
+    if (items.length) moveMany(items);
+  }, 300);
+}
 addEventListener("keydown", (e) => {
   if (e.target.closest?.("input, textarea, [contenteditable=true]")) return; // typing belongs to the field
   const mod = e.ctrlKey || e.metaKey;
@@ -1260,15 +1603,24 @@ addEventListener("keydown", (e) => {
   else if (mod && e.key.toLowerCase() === "a") { e.preventDefault(); setSel(topCards().map((c) => c.id)); }
   else if (mod && e.key.toLowerCase() === "c") copy();
   else if (mod && e.key.toLowerCase() === "x") { e.preventDefault(); cut(); }
+  else if (mod && e.shiftKey && e.key.toLowerCase() === "d") { e.preventDefault(); toggleTheme(); }
+  else if (mod && !e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); openBoards(); }
   else if (mod && e.key.toLowerCase() === "d") { e.preventDefault(); duplicate(); }
+  else if (mod && e.key === "[") { e.preventDefault(); window.history.back(); } // `history` is the undo stack in this file
+  else if (mod && e.key === "]") { e.preventDefault(); window.history.forward(); }
+  else if (mod && !e.shiftKey && e.key.toLowerCase() === "u") { e.preventDefault(); const up = els[B]?.location.parentId; if (B !== HOME && up) location.hash = up === HOME ? "" : up; } // up to the parent board
   else if (e.key === "/") { e.preventDefault(); $("q").focus(); }
   else if (e.shiftKey && e.code === "Digit1") { e.preventDefault(); fit(); }
   else if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); }
   else if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); }
-  else if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); zoomAt(1.2); }
-  else if (mod && e.key === "-") { e.preventDefault(); zoomAt(1 / 1.2); }
+  else if (mod && e.shiftKey && sel.size && (e.key === "ArrowUp" || e.key === "ArrowDown")) { e.preventDefault(); arrange([...sel], e.key === "ArrowUp"); }
+  else if (!mod && !e.altKey && sel.size && e.key.startsWith("Arrow")) { e.preventDefault(); nudge(e); }
+  else if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); zoomAt(ZOOM_STEP); }
+  else if (mod && e.key === "-") { e.preventDefault(); zoomAt(1 / ZOOM_STEP); }
   else if (mod && e.key === "0") { e.preventDefault(); resetView(); }
   else if (e.key === "Escape") {
+    if ($("outline").hidden === false) return closeOutline();
+    if (document.body.classList.contains("presenting")) return present(false);
     if (readClip()?.cut) { localStorage.removeItem("clip"); markCut([]); } // Esc also cancels a pending cut
     if (!$("picker").hidden) closePicker(); else if (tool) setTool(null); else setSel([]);
   }
@@ -1278,11 +1630,11 @@ addEventListener("keydown", (e) => {
 addEventListener("keyup", (e) => { if (e.key === " ") { spaceDown = false; document.body.classList.remove("pan"); } });
 
 // first spot on a grid that does not overlap a card already on the canvas, searched in board coordinates inside the visible area
-const SIZE = { CARD: [200, 64], COLUMN: [240, 140], BOARD: [124, 150], TASK_LIST: [240, 150], LINK: [240, 100], IMAGE: [232, 170], COMMENT_THREAD: [240, 90], TABLE: [330, 150] };
+const SIZE = { CARD: [200, 64], COLUMN: [240, 140], BOARD: [124, 150], TASK_LIST: [240, 150], LINK: [240, 100], IMAGE: [232, 170], COMMENT_THREAD: [240, 90], TABLE: [330, 150], SWATCH: [112, 120] };
 function freeSpot(type) {
   const [w, h] = SIZE[type], gap = 16;
   const taken = topCards().map((c) => { const r = c.getBoundingClientRect(), a = toBoard(r.left, r.top), b = toBoard(r.right, r.bottom); return { l: a.x, t: a.y, r: b.x, b: b.y }; });
-  const o = toBoard(110, 90), far = toBoard(innerWidth, innerHeight);
+  const o = toBoard(innerWidth > 720 ? 390 : 110, 80), far = toBoard(innerWidth, innerHeight); // new cards start to the right of the options panel, below the top bar
   for (let y = o.y; y < far.y - h; y += 24)
     for (let x = o.x; x < far.x - w; x += 24)
       if (!taken.some((k) => x < k.r + gap && x + w + gap > k.l && y < k.b + gap && y + h + gap > k.t)) return { x: Math.round(x), y: Math.round(y) };
@@ -1309,16 +1661,82 @@ function commit(el, { select = true } = {}) {
 }
 const add = (elementType, content, pos = freeSpot(elementType)) => commit(newElement(elementType, content, pos));
 
+const downloadImage = (el) => Object.assign(document.createElement("a"), { href: "/api/media/" + el.content.mediaId, download: el.content.name || "image" }).click(); // the stored file: a crop never changes it
+// Rotate: the picture is turned 90 degrees clockwise and stored as a new one (the card points at it; undo points it back). The crop rectangle and the
+// pins are turned with it, so they stay on the same spot. An animated GIF would lose its animation, so it is left alone.
+async function rotateImage(el) {
+  const old = el.content.mediaId, r = await fetch("/api/media/" + old).catch(() => null);
+  if (!r?.ok) return flash("Could not read the picture");
+  const blob = await r.blob();
+  if (blob.type === "image/gif") return flash("An animated GIF cannot be rotated");
+  const bmp = await createImageBitmap(blob), cv = document.createElement("canvas");
+  cv.width = bmp.height; cv.height = bmp.width;
+  const c = cv.getContext("2d"); c.translate(cv.width, 0); c.rotate(Math.PI / 2); c.drawImage(bmp, 0, 0);
+  const out = await new Promise((ok) => cv.toBlob(ok, blob.type, 0.92));
+  if (!out || out.size > 5 * 1024 * 1024) return flash("The rotated picture is over 5 MB");
+  const up = await fetch("/api/media", { method: "POST", headers: { "x-user-id": uid, "content-type": blob.type }, body: out }).catch(() => null);
+  if (!up?.ok) return flash("Rotate failed");
+  const k = cropOf(el.content); // a point (x, y) of the picture lands on (1 - y, x); a rectangle swaps its width and height
+  update(el, { mediaId: (await up.json()).id, crop: k ? { x: 1 - k.y - k.h, y: k.x, w: k.h, h: k.w } : null, pins: (el.content.pins ?? []).map((p) => ({ ...p, x: 1 - p.y, y: p.x })) });
+}
+
+// Pictures can be cropped (a rectangle in fractions of the original, the original is kept) and carry numbered pins with notes.
+// Pins are stored in the original's coordinates, so they stay on the same spot when the crop changes.
+const cropOf = (c) => { const k = c?.crop; return k && [k.x, k.y, k.w, k.h].every(Number.isFinite) && k.w >= 0.05 && k.h >= 0.05 && k.x >= 0 && k.y >= 0 && k.x + k.w <= 1.001 && k.y + k.h <= 1.001 ? k : null; };
+function fitImage(d) {
+  const el = els[d.id], img = d.querySelector("img"), frame = d.querySelector(".frame"), k = d.classList.contains("cropping") ? null : cropOf(el.content);
+  if (!k || !img.naturalWidth) { frame.style.aspectRatio = ""; img.removeAttribute("style"); } else {
+    frame.style.aspectRatio = `${k.w * img.naturalWidth} / ${k.h * img.naturalHeight}`;
+    Object.assign(img.style, { position: "absolute", maxWidth: "none", height: "auto", width: 100 / k.w + "%", left: (-k.x / k.w) * 100 + "%", top: (-k.y / k.h) * 100 + "%" });
+  }
+  const v = k ?? { x: 0, y: 0, w: 1, h: 1 };
+  d.querySelector(".pins").replaceChildren(...(Array.isArray(el.content.pins) ? el.content.pins : []).slice(0, 30).map((p, i) => {
+    const b = Object.assign(document.createElement("button"), { className: "pin", textContent: i + 1, title: String(p.text ?? "").slice(0, 300) });
+    b.style.left = ((p.x - v.x) / v.w) * 100 + "%"; b.style.top = ((p.y - v.y) / v.h) * 100 + "%";
+    b.hidden = !(p.x >= v.x && p.x <= v.x + v.w && p.y >= v.y && p.y <= v.y + v.h);
+    b.dataset.i = i;
+    return b;
+  }));
+}
+
+// Colours from a picture: shrink it, count the colours in coarse buckets, and keep the most common ones that look different from each other.
+function paletteFrom(d) {
+  const img = d.querySelector("img");
+  if (!img.complete || !img.naturalWidth) return flash("The picture is still loading");
+  const c = Object.assign(document.createElement("canvas"), { width: 64, height: 64 }), g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(img, 0, 0, 64, 64);
+  const px = g.getImageData(0, 0, 64, 64).data, buckets = new Map();
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i + 3] < 200) continue;
+    const k = (px[i] >> 4) * 256 + (px[i + 1] >> 4) * 16 + (px[i + 2] >> 4), b = buckets.get(k) ?? [0, 0, 0, 0];
+    b[0]++; b[1] += px[i]; b[2] += px[i + 1]; b[3] += px[i + 2]; buckets.set(k, b);
+  }
+  const far = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) > 48, picked = [];
+  for (const [n, r, gr, bl] of [...buckets.values()].sort((a, b) => b[0] - a[0])) {
+    const rgb = [r / n, gr / n, bl / n];
+    if (picked.every((p) => far(p, rgb))) picked.push(rgb);
+    if (picked.length === 5) break;
+  }
+  if (!picked.length) return flash("No colours found in that picture");
+  const at = el0 => ({ x: Math.round(el0.location.position.x + d.offsetWidth + 24), y: Math.round(el0.location.position.y) });
+  const base = at(els[d.id]);
+  picked.forEach((rgb, i) => commit(newElement("SWATCH", { color: toHex(rgb.map(Math.round)) }, { x: base.x + i * 124, y: base.y }), { select: false }));
+  toast(`Made ${plural(picked.length, "colour card")}`);
+}
+
 // A link card's preview comes from the server, which fetches the page (see unfurl.ts). It is not recorded for undo: editing the URL
 // clears the old preview in the same step, so undo restores the old link together with its old preview.
 async function unfurlLink(id) {
   const url = els[id]?.content.url, u = safeUrl(url ?? "");
   if (!u) return;
+  const target = u.origin === location.origin && /^#[0-9a-z]+$/i.test(u.hash) ? u.hash.slice(1) : null; // the address of a board of this app: the card becomes a shortcut to it
+  const board = target ? (await fetchBoards([target]).catch(() => ({})))[target] : null;
+  if (board?.elementType === "BOARD" && els[id]?.content.url === url) return void updateMany([{ id, changes: { boardId: target, previewTitle: board.content.title || DEFAULT.BOARD, previewSite: "Board", previewDesc: null, previewImage: null } }], false);
   try {
     const r = await fetch("/api/unfurl?url=" + encodeURIComponent(u.href), { headers: { "x-user-id": uid } });
     if (!r.ok || els[id]?.content.url !== url) return; // refused, or the link was edited again while we waited
     const p = await r.json();
-    await updateMany([{ id, changes: { previewTitle: p.title ?? null, previewDesc: p.description ?? null, previewSite: p.site ?? null, previewImage: p.mediaId ?? null } }], false);
+    await updateMany([{ id, changes: { boardId: null, previewTitle: p.title ?? null, previewDesc: p.description ?? null, previewSite: p.site ?? null, previewImage: p.mediaId ?? null } }], false);
   } catch { /* no preview: the card still shows the link */ }
 }
 
@@ -1461,6 +1879,81 @@ function addMessage(el, m) { // idempotent: the sender gets its own message from
 }
 $("comment").onclick = () => add("COMMENT_THREAD", { messages: [] });
 
+// --- right-click menus: on a card (cut, copy, lock, order...) and on the empty canvas (new cards, paste, background) ---
+const cmenu = Object.assign(document.createElement("div"), { id: "cmenu", hidden: true });
+document.body.append(cmenu);
+const closeMenu = () => { cmenu.hidden = true; };
+function showMenu(x, y, items) {
+  cmenu.replaceChildren(...items.map((it) => {
+    if (it === "-") return document.createElement("hr");
+    if (it.note) return Object.assign(document.createElement("div"), { className: "meta", textContent: it.note });
+    const b = Object.assign(document.createElement("button"), { type: "button", disabled: !!it.off });
+    b.append(Object.assign(document.createElement("span"), { textContent: it.label }), ...(it.key ? [Object.assign(document.createElement("kbd"), { textContent: it.key })] : []));
+    b.onclick = () => { closeMenu(); it.run(); };
+    return b;
+  }));
+  cmenu.hidden = false;
+  const r = cmenu.getBoundingClientRect();
+  cmenu.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + "px"; cmenu.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + "px";
+}
+addEventListener("pointerdown", (e) => { if (!cmenu.hidden && !cmenu.contains(e.target)) closeMenu(); }, true); // capture: cards stop their own pointerdown from bubbling
+addEventListener("wheel", closeMenu, { passive: true }); addEventListener("blur", closeMenu); addEventListener("resize", closeMenu);
+addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); }, true);
+
+// z-order is a number on the card; the front is one above the highest in use, the back one below the lowest
+function arrange(ids, front) {
+  const zs = Object.values(els).map((e) => e.content.z).filter(Number.isFinite), base = front ? Math.max(0, ...zs) + 1 : Math.min(0, ...zs) - ids.length;
+  updateMany(ids.map((id, i) => ({ id, changes: { z: base + i } })));
+}
+const ago = (t) => {
+  const s = Math.max(0, (Date.now() - t) / 1000), f = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+  return s < 60 ? "just now" : s < 3600 ? f.format(-Math.round(s / 60), "minute") : s < 86400 ? f.format(-Math.round(s / 3600), "hour") : f.format(-Math.round(s / 86400), "day");
+};
+function cardMenu() {
+  const ids = [...sel].filter((id) => els[id]), one = ids.length === 1 ? els[ids[0]] : null, locked = ids.every((id) => els[id].content.locked), by = one?.meta.creator;
+  return [
+    ...(one?.elementType === "BOARD" ? [{ label: "Open", run: () => { location.hash = one.id; } }, "-"] : []),
+    ...(one?.elementType === "IMAGE" ? [{ label: "Rotate", run: () => rotateImage(one) }, { label: "Download Original", run: () => downloadImage(one) }, "-"] : []),
+    ...(one?.elementType === "LINK" ? [
+      ...[["Picture", "hideImage", one.content.previewImage], ["Description", "hideDesc", one.content.previewDesc], ["Address", "hideUrl", one.content.url]]
+        .filter(([, , has]) => has).map(([label, key]) => ({ label: (one.content[key] ? "Show " : "Hide ") + label, run: () => update(one, { [key]: one.content[key] ? null : true }) })), "-"] : []),
+    { label: "Cut", key: "Ctrl X", run: cut }, { label: "Copy", key: "Ctrl C", run: copy }, { label: "Duplicate", key: "Ctrl D", run: duplicate },
+    { label: "Move to Trash", key: "Backspace", run: () => trashIds(ids) },
+    "-", { label: locked ? "Unlock Position" : "Lock Position", run: () => updateMany(ids.map((id) => ({ id, changes: { locked: locked ? null : true } }))) },
+    "-", { label: "Bring to Front", run: () => arrange(ids, true) }, { label: "Send to Back", run: () => arrange(ids, false) },
+    ...(one && one.meta.createdTime ? ["-", { note: `Created by ${by === uid || by === sid ? "you" : by} ${ago(one.meta.createdTime)}` }] : []),
+  ];
+}
+const NEW_CARDS = [["Note", "CARD", { textContent: "" }], ["Link", "LINK", { url: "" }], ["To-do", "TASK_LIST", () => ({ title: "", tasks: [{ id: rid(), text: "", done: false }] })], ["Board", "BOARD", { title: "" }], ["Column", "COLUMN", { title: "" }], ["Comment", "COMMENT_THREAD", { messages: [] }], ["Table", "TABLE", { rows: [["", "", ""], ["", "", ""], ["", "", ""]], header: true }], ["Colour", "SWATCH", { color: "#87d7ff" }], ["Heading", "CARD", { textContent: "", heading: true }]];
+function canvasMenu(pt) {
+  const at = { x: Math.round(pt.x), y: Math.round(pt.y) }, c = readClip();
+  return [
+    { label: "Undo", key: "Ctrl Z", off: !history.undo.length, run: undo }, { label: "Redo", key: "Ctrl Y", off: !history.redo.length, run: redo },
+    { label: "Select All", key: "Ctrl A", run: () => setSel(topCards().map((x) => x.id)) },
+    { label: "Paste", key: "Ctrl V", off: !(c?.cut || c?.items?.length), run: () => (c.cut ? pasteCut(c, at) : place(c, at)) },
+    "-", ...NEW_CARDS.map(([label, type, content]) => ({ label: "New " + label, run: () => add(type, typeof content === "function" ? content() : structuredClone(content), at) })),
+    "-", { label: "Change Board Background", run: () => { $("bgpop").hidden = false; applyBg(); } }, { label: "Present", run: () => present(true) },
+  ];
+}
+addEventListener("contextmenu", (e) => {
+  if (e.target.closest("input, textarea, [contenteditable=true], #tools, #top, #trash, #zoom, #picker, #cmenu, #ctx, #expop, #impdlg, #bgpop, #outline, #bpanel")) return; // the browser's own menu there (spell check, paste)
+  e.preventDefault(); closeMenu();
+  if (tool) return;
+  const card = e.target.closest(".card");
+  if (card) { if (!sel.has(card.id)) setSel([card.id]); showMenu(e.clientX, e.clientY, cardMenu()); }
+  else { setSel([]); showMenu(e.clientX, e.clientY, canvasMenu(toBoard(e.clientX, e.clientY))); }
+});
+
+// presentation mode: full screen, no toolbar, no grid; Esc leaves
+function present(on = !document.body.classList.contains("presenting")) {
+  document.body.classList.toggle("presenting", on); setSel([]); closeMenu();
+  if (on) document.documentElement.requestFullscreen?.().catch(() => {});
+  else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+}
+document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement && document.body.classList.contains("presenting")) present(false); });
+$("presentBtn").onclick = () => present(true);
+$("themeBtn").onclick = toggleTheme;
+
 // --- tools: line and freehand drawing ---
 function setTool(t) {
   tool = t; document.body.dataset.tool = t ?? "";
@@ -1474,6 +1967,22 @@ function setTool(t) {
 }
 $("line").onclick = () => setTool(tool === "line" ? null : "line");
 $("draw").onclick = () => setTool(tool === "draw" ? null : "draw");
+// The pen's colour for new strokes; "" follows the theme (white on dark, black on light). Remembered in this browser.
+let pen = (() => { try { const v = localStorage.getItem("pen"); return HEX.test(v ?? "") ? v : ""; } catch { return ""; } })();
+function markPen() {
+  const bar = $("drawbar");
+  bar.querySelectorAll("button[data-val]").forEach((b) => b.classList.toggle("on", b.dataset.val === pen || (b.dataset.val === "custom" && !!pen && !INK.some(([v]) => v === pen))));
+  showCustom(bar, INK.some(([v]) => v === pen) ? [] : [pen]); // the rainbow button shows a colour only when it is a custom one
+}
+function setPen(v) { pen = v; try { localStorage.setItem("pen", v); } catch { /* not remembered, still used */ } markPen(); }
+$("drawbar").querySelector(".seg").innerHTML = inkSwatches() + CUSTOM;
+$("drawbar").onclick = (e) => {
+  const b = e.target.closest("button[data-val]");
+  if (!b) return;
+  if (b.dataset.val === "custom") return openPicker(pen || undefined, setPen);
+  setPen(b.dataset.val);
+};
+markPen();
 
 function startLine(e) { // press, drag, release: draws an arrow; an end that starts or lands on a card attaches to it; a tiny drag is a mis-click
   const p = toBoard(e.clientX, e.clientY), at = { x: Math.round(p.x), y: Math.round(p.y) }, from = cardAt(e.clientX, e.clientY);
@@ -1498,6 +2007,7 @@ const MAX_STROKE_POINTS = 4000; // keeps one stroke far inside the socket's 1 MB
 function startStroke(e) {
   const pts = [], path = document.createElementNS(NS, "path"), svg = $("draft");
   if (!svg) return;
+  if (pen) path.style.stroke = pen;
   svg.append(path);
   const add = (m) => {
     const q = toBoard(m.clientX, m.clientY), x = +q.x.toFixed(1), y = +q.y.toFixed(1), last = pts.at(-1);
@@ -1517,27 +2027,46 @@ function saveStroke(pts) {
   const minx = Math.min(...xs) - pad, miny = Math.min(...ys) - pad;
   const w = Math.max(1, Math.round(Math.max(...xs) + pad - minx)), h = Math.max(1, Math.round(Math.max(...ys) + pad - miny));
   // the card is as wide as the stroke (+ its padding), so it appears exactly where and how big it was drawn
-  const content = { w, h, width: w + 12, paths: [pts.map(([x, y]) => [+(x - minx).toFixed(1), +(y - miny).toFixed(1)])] };
+  const content = { w, h, width: w + 12, paths: [pts.map(([x, y]) => [+(x - minx).toFixed(1), +(y - miny).toFixed(1)])], ...(pen ? { color: pen } : {}) };
   commit(newElement("SKETCH", content, { x: Math.round(minx) - 6, y: Math.round(miny) - 6 }), { select: false });
 }
 $("note").onclick = () => add("CARD", { textContent: "" });
 $("todo").onclick = () => add("TASK_LIST", { title: "", tasks: [{ id: rid(), text: "", done: false }] });
 $("link").onclick = () => add("LINK", { url: "" });
+$("swatch").onclick = () => add("SWATCH", { color: "#87d7ff" });
+$("heading").onclick = () => add("CARD", { textContent: "", heading: true });
 $("table").onclick = () => add("TABLE", { rows: [["", "", ""], ["", "", ""], ["", "", ""]], header: true });
 $("col").onclick = () => add("COLUMN", { title: "" });
 $("brd").onclick = () => add("BOARD", { title: "" });
 
 // images: picker, drag-and-drop from the desktop, or paste. The server checks type, real bytes and the 5 MB cap.
 const IMG_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
-async function uploadImage(file, pos) {
-  if (!IMG_TYPES.includes(file.type)) return flash("Only PNG, JPEG, GIF or WebP images");
-  if (file.size > 5 * 1024 * 1024) return flash("That image is over 5 MB");
+let picFor = null; // set while the file picker was opened from a link card
+async function storeImage(file) { // checked and uploaded: the stored picture's id, or undefined (and the reason is shown)
+  if (!IMG_TYPES.includes(file.type)) return void flash("Only PNG, JPEG, GIF or WebP images");
+  if (file.size > 5 * 1024 * 1024) return void flash("That image is over 5 MB");
   const r = await fetch("/api/media", { method: "POST", headers: { "x-user-id": uid, "content-type": file.type }, body: file }).catch(() => null);
-  if (!r?.ok) return flash("Upload failed");
-  add("IMAGE", { mediaId: (await r.json()).id, name: file.name }, pos);
+  if (!r?.ok) return void flash("Upload failed");
+  return (await r.json()).id;
 }
-$("image").onclick = () => $("file").click();
-$("file").onchange = (e) => { [...e.target.files].forEach((f) => uploadImage(f)); e.target.value = ""; };
+async function uploadImage(file, pos, linkId = null) {
+  const mediaId = await storeImage(file);
+  if (!mediaId) return;
+  if (linkId && els[linkId]) update(els[linkId], { previewImage: mediaId }); else add("IMAGE", { mediaId, name: file.name }, pos);
+}
+// Several pictures chosen at once with Image: they land together in one column named "Unsorted" (Milanote does the same), one undo step
+async function uploadMany(files) {
+  const done = (await Promise.all(files.map(async (f) => [f, await storeImage(f)]))).filter(([, id]) => id);
+  if (done.length < 2) return done.forEach(([f, id]) => add("IMAGE", { mediaId: id, name: f.name }));
+  const col = newElement("COLUMN", { title: "Unsorted" }, freeSpot("COLUMN"));
+  const kids = done.map(([f, mediaId], j) => ({ ...newElement("IMAGE", { mediaId, name: f.name }, {}), location: { parentId: col.id, section: "COLUMN", position: { score: 65536 * (j + 1) } } }));
+  commitMany([col], kids);
+}
+$("image").onclick = () => { picFor = null; $("file").click(); };
+$("file").onchange = (e) => {
+  const link = picFor, files = [...e.target.files]; picFor = null; e.target.value = "";
+  if (!link && files.length > 1) uploadMany(files); else files.forEach((f) => uploadImage(f, undefined, link));
+};
 addEventListener("dragover", (e) => e.dataTransfer?.types.includes("Files") && e.preventDefault());
 addEventListener("drop", (e) => {
   if (!e.dataTransfer?.files.length) return;
@@ -1552,7 +2081,8 @@ addEventListener("paste", (e) => {
     return;
   }
   e.preventDefault();
-  files.forEach((f) => uploadImage(f));
+  const only = sel.size === 1 ? els[[...sel][0]] : null; // one link card selected: the picture becomes its thumbnail
+  files.forEach((f) => uploadImage(f, undefined, only?.elementType === "LINK" ? only.id : null));
 });
 
 // Trash panel: lists what was deleted from this board; Restore moves it back to where it came from
@@ -1584,7 +2114,7 @@ async function openTrash() {
 $("trashBtn").onclick = () => ($("trash").style.display === "block" ? ($("trash").style.display = "none") : openTrash());
 
 // --- search: dims every card that does not match; Enter steps through the matches (Shift+Enter goes back) ---
-const searchText = (e) => [e.content.title, e.content.textContent, e.content.url, e.content.previewTitle, e.content.previewDesc, e.content.name, ...(e.content.tasks ?? []).map((t) => t.text), ...tableRows(e.content).flat(), ...(e.content.messages ?? []).map((m) => m.text)].filter(Boolean).join(" ").toLowerCase();
+const searchText = (e) => [e.content.title, e.content.textContent, e.content.url, e.content.previewTitle, e.content.previewDesc, e.content.name, ...(e.content.tasks ?? []).map((t) => t.text), ...tableRows(e.content).flat(), e.content.color, e.content.caption, ...(e.content.pins ?? []).map((p) => p.text), ...(e.content.messages ?? []).map((m) => m.text)].filter(Boolean).join(" ").toLowerCase();
 let hits = [], hitAt = -1, searchTimer;
 function runSearch() {
   const query = $("q").value.trim().toLowerCase();
@@ -1652,9 +2182,147 @@ async function enter() {
   if (ack.status !== 200) { $("canvas").innerHTML = ""; els = {}; status("bad", `No access to ${next} as ${uid}`); return; }
   joined = next + "-LIVE";
   await load(); await crumbs();
+  rememberBoard(B, B === HOME ? "Home" : $("crumbs").lastElementChild?.textContent);
+  if ($("outline").hidden === false) renderOutline();
+  if (focusAfter) { const f = focusAfter; focusAfter = null; if (els[f]) centerOn(f); } // arriving from a search result: the card is brought to the middle
   $("trash").style.display = "none";
   status("live", "Live as " + uid);
 }
+// --- boards panel: every board you can open, the last ones you visited, and search across all of them -------------------------
+const h = (tag, cls = "", text = "") => Object.assign(document.createElement(tag), { className: cls, textContent: text }); // user text only ever goes in as textContent
+const bpanel = $("bpanel"), blist = $("blist"), expanded = new Set();
+let focusAfter = null, boardsSearchSeq = 0, boardsSearchTimer;
+const recents = () => { try { return JSON.parse(localStorage.getItem("recent") ?? "[]").filter((r) => r && typeof r.id === "string").slice(0, 8); } catch { return []; } };
+function rememberBoard(id, title) {
+  try { localStorage.setItem("recent", JSON.stringify([{ id, title: title || "Untitled board" }, ...recents().filter((r) => r.id !== id)].slice(0, 8))); } catch { /* not remembered */ }
+}
+function goTo(board, card = null) { // open a board and, if given, bring one of its cards to the middle of the screen
+  bpanel.hidden = true;
+  if (board === B) return void (card && centerOn(card));
+  focusAfter = card;
+  location.hash = board === HOME ? "" : board;
+}
+function renderTree(data) {
+  const byId = new Map(data.boards.map((b) => [b.id, b])), kids = (id) => data.boards.filter((b) => b.parent === id).sort((a, c) => a.title.localeCompare(c.title));
+  const rows = [], walk = (b, depth) => {
+    const ks = kids(b.id), row = h("button", "row" + (b.id === B ? " here" : ""));
+    row.style.paddingLeft = 6 + depth * 16 + "px";
+    const caret = h("span", "caret", ks.length ? (expanded.has(b.id) ? "▾" : "▸") : "");
+    caret.onclick = (e) => { e.stopPropagation(); expanded.has(b.id) ? expanded.delete(b.id) : expanded.add(b.id); renderTree(data); };
+    row.append(caret, h("span", "", b.id === data.home ? "Home" : b.title || "Untitled board"));
+    row.onclick = () => goTo(b.id);
+    rows.push(row);
+    if (expanded.has(b.id)) ks.forEach((k) => walk(k, depth + 1));
+  };
+  data.boards.filter((b) => !b.parent || !byId.has(b.parent)).forEach((r) => walk(r, 0));
+  const seen = recents().filter((r) => r.id !== B && byId.has(r.id)).map((r) => { const row = h("button", "row", byId.get(r.id).title || r.title); row.onclick = () => goTo(r.id); return row; });
+  blist.replaceChildren(...(seen.length ? [h("h4", "", "Recent"), ...seen] : []), h("h4", "", "All boards"), ...rows);
+}
+async function showTree() {
+  const r = await fetch("/api/tree", { headers: { "x-user-id": uid } }).catch(() => null);
+  if (!r?.ok) return void blist.replaceChildren(h("h4", "", "Could not load your boards"));
+  const data = await r.json(), byId = new Map(data.boards.map((b) => [b.id, b]));
+  HOME ??= data.home; expanded.add(data.home);
+  for (let x = B, i = 0; x && i < 30; x = byId.get(x)?.parent, i++) expanded.add(x); // the way down to where you are
+  renderTree(data);
+}
+function hitRow(hit, q) {
+  const text = h("div"), at = hit.at ?? 0, snip = h("div", "snip"), mark = h("mark", "", hit.snippet.slice(at, at + q.length));
+  snip.append(hit.snippet.slice(0, at), mark, hit.snippet.slice(at + q.length));
+  text.append(h("small", "", (hit.boardTitle || "Untitled board") + " · " + (LABEL[hit.type] ?? hit.type)), snip);
+  const row = h("button", "row hit"); row.append(text); row.onclick = () => goTo(hit.board, hit.id);
+  return row;
+}
+function runGlobalSearch() {
+  clearTimeout(boardsSearchTimer);
+  const q = $("bq").value.trim();
+  if (q.length < 2) return void (q ? blist.replaceChildren(h("h4", "", "Type at least 2 letters")) : showTree());
+  boardsSearchTimer = setTimeout(async () => {
+    const seq = ++boardsSearchSeq, r = await fetch("/api/search?q=" + encodeURIComponent(q), { headers: { "x-user-id": uid } }).catch(() => null);
+    if (seq !== boardsSearchSeq) return; // a newer search is on its way
+    if (!r?.ok) return void blist.replaceChildren(h("h4", "", "Search failed"));
+    const { hits } = await r.json();
+    blist.replaceChildren(...(hits.length ? hits.map((x) => hitRow(x, q)) : [h("h4", "", "Nothing found")]));
+  }, 200);
+}
+function openBoards() { bpanel.hidden = false; $("bq").focus(); $("bq").select(); runGlobalSearch(); }
+$("boardsBtn").onclick = () => (bpanel.hidden ? openBoards() : (bpanel.hidden = true));
+$("bq").oninput = runGlobalSearch;
+$("bq").onkeydown = (e) => { if (e.key === "Escape") { e.stopPropagation(); bpanel.hidden = true; } else if (e.key === "Enter") blist.querySelector(".row.hit, .row")?.click(); };
+addEventListener("pointerdown", (e) => { if (!bpanel.hidden && !e.target.closest("#bpanel, #boardsBtn")) bpanel.hidden = true; });
+
+// --- outline: the board as a list of its text, to read, edit and copy ------------------------------------------------------
+const outline = $("outline"), olist = $("olist");
+let outlineTimer;
+const outlineOpen = () => !outline.hidden;
+function scheduleOutline() { clearTimeout(outlineTimer); outlineTimer = setTimeout(() => { if (outlineOpen() && !olist.contains(document.activeElement)) renderOutline(); }, 150); } // never rebuild under someone who is typing
+const editable = (cls, text, ph, save) => { // a one-line or multi-line text that saves when you leave it
+  const d = h("div", cls, text); d.contentEditable = "true"; d.dataset.ph = ph; d.spellcheck = true;
+  d.onblur = () => { const v = d.innerText.replace(/\u200b/g, "").trim(); if (v !== text) save(v); };
+  d.onkeydown = (e) => { e.stopPropagation(); if (e.key === "Escape" || (e.key === "Enter" && !cls.includes("o-text"))) { e.preventDefault(); d.blur(); } };
+  return d;
+};
+function outlineItem(e) {
+  const c = e.content, t = e.elementType, box = h("div", "o-item o-" + (KIND[t] ?? t.toLowerCase()));
+  const go = h("button", "btn o-go", "Show on board"); go.onclick = () => { closeOutline(); centerOn(e.id); }; box.append(go);
+  if (t === "COLUMN") {
+    box.classList.add("o-col");
+    const kids = h("div", "o-kids");
+    box.prepend(editable("o-title", c.title ?? "", "Column", (v) => update(e, { title: v })));
+    Object.values(els).filter((k) => k.location.parentId === e.id && k.location.section !== "TRASH").sort((a, b) => a.location.position.score - b.location.position.score).forEach((k) => { const it = outlineItem(k); if (it) kids.append(it); });
+    box.append(kids);
+  } else if (t === "CARD") {
+    const wrap = h("div", "note"), body = h("div", "text o-text" + (c.heading ? " heading" : "")); // .note .text: the same text options as on the board appear in the left panel
+    wrap.append(body); box.append(wrap);
+    if (c.html) body.innerHTML = cleanHtml(c.html); else body.textContent = c.textContent ?? "";
+    body.contentEditable = "true"; body.dataset.ph = "Note"; body.spellcheck = true;
+    body.onkeydown = (ev) => { ev.stopPropagation(); if (ev.key === "Escape") { ev.preventDefault(); body.blur(); } };
+    body.onblur = () => {
+      const html = cleanHtml(body.innerHTML), text = body.innerText.replace(/\u200b/g, "").trim(), next = hasFormatting(html) ? html : null;
+      if (text !== (c.textContent ?? "") || next !== (c.html ?? null)) update(e, { textContent: text, html: next }); // only when something changed
+    };
+  } else if (t === "TASK_LIST") {
+    box.prepend(editable("o-title", c.title ?? "", "To-do list", (v) => update(e, { title: v })));
+    const save = (list) => update(e, { tasks: list });
+    for (const task of c.tasks ?? []) {
+      const row = h("div", "o-task" + (task.done ? " done" : "")), box1 = h("input"), tx = h("textarea");
+      box1.type = "checkbox"; box1.checked = !!task.done; tx.rows = 1; tx.value = task.text ?? "";
+      box1.onchange = () => save(c.tasks.map((x) => (x.id === task.id ? { ...x, done: box1.checked } : x)));
+      tx.onkeydown = (ev) => { ev.stopPropagation(); if (ev.key === "Enter" || ev.key === "Escape") { ev.preventDefault(); tx.blur(); } };
+      tx.onblur = () => { if (tx.value !== task.text) save(c.tasks.map((x) => (x.id === task.id ? { ...x, text: tx.value.replace(/\s*\n+\s*/g, " ") } : x))); };
+      row.append(box1, tx); box.append(row);
+    }
+  } else if (t === "LINK") {
+    const u = safeUrl(c.url ?? "");
+    box.append(h("b", "", c.previewTitle || u?.hostname || c.url || "Link"));
+    if (u) { const a = h("a", "", u.href); a.href = u.href; a.target = "_blank"; a.rel = "noopener noreferrer"; box.append(a); }
+    if (c.previewDesc) box.append(h("div", "o-desc", c.previewDesc));
+  } else if (t === "IMAGE") {
+    if (/^[0-9a-f-]{36}$/.test(c.mediaId ?? "")) { const img = h("img"); img.src = "/api/media/" + c.mediaId; img.alt = c.name ?? ""; box.append(img); }
+    box.append(editable("o-cap", c.caption ?? "", "Add a caption", (v) => update(e, { caption: v })));
+  } else if (t === "TABLE") {
+    const tb = h("table"); for (const r of (c.rows ?? []).slice(0, 100)) { const tr = h("tr"); for (const v of r.slice(0, 20)) tr.append(h("td", "", String(v ?? ""))); tb.append(tr); }
+    box.append(tb);
+  } else if (t === "BOARD") {
+    box.append(h("b", "", c.title || "Untitled board")); const open = h("button", "btn", "Open board"); open.onclick = () => { closeOutline(); goTo(e.id); }; box.append(open);
+  } else if (t === "SWATCH") {
+    const chip = h("span", "o-chip"), row = h("div"); chip.style.background = HEX.test(c.color ?? "") ? c.color : "#ccc"; row.append(chip, h("span", "o-muted", c.color ?? "")); box.append(row);
+  } else return null; // lines, drawings and comments have no text of their own to list
+  return box;
+}
+function renderOutline() {
+  const top = Object.values(els).filter((e) => e.location.parentId === B && e.location.section === "CANVAS" && e.id !== B).sort((a, b) => a.location.position.y - b.location.position.y || a.location.position.x - b.location.position.x); // reading order, like the exports
+  const bar = h("div", "o-bar"), close = h("button", "btn", "Close"), copy = h("button", "btn", "Copy text");
+  close.onclick = closeOutline;
+  copy.onclick = async () => { try { await navigator.clipboard.writeText([...olist.querySelectorAll(".o-item")].filter((x) => !x.parentElement.classList.contains("o-kids")).map((x) => x.innerText.replace("Show on board", "").replace("Open board", "").trim()).join("\n\n")); toast("Copied"); } catch { flash("Could not copy"); } };
+  bar.append(h("b", "", "Outline: " + ($("crumbs").lastElementChild?.textContent || "Board")), copy, close);
+  const items = top.map(outlineItem).filter(Boolean);
+  olist.replaceChildren(bar, ...(items.length ? items : [h("div", "o-empty", "Nothing to list on this board yet.")]));
+}
+function openOutline() { setSel([]); outline.hidden = false; $("outlineBtn").classList.add("on"); renderOutline(); }
+function closeOutline() { outline.hidden = true; $("outlineBtn").classList.remove("on"); }
+$("outlineBtn").onclick = () => (outlineOpen() ? closeOutline() : openOutline());
+olist.addEventListener("focusout", scheduleOutline);
 s.on("connect", async () => { joined = null; await enter(); });
 s.on("disconnect", () => status("wait", "Offline"));
 onhashchange = enter;

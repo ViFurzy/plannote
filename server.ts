@@ -8,7 +8,7 @@ import { unfurl, fetchImage } from "./unfurl.ts";
 
 export type Element = {
   id: string;
-  elementType: "BOARD" | "CARD" | "COLUMN" | "LINE" | "LINK" | "SKETCH" | "TABLE" | "TASK_LIST" | "DOCUMENT" | "COMMENT_THREAD" | "IMAGE";
+  elementType: "BOARD" | "CARD" | "COLUMN" | "LINE" | "LINK" | "SKETCH" | "SWATCH" | "TABLE" | "TASK_LIST" | "DOCUMENT" | "COMMENT_THREAD" | "IMAGE";
   location: { parentId: string; section: "CANVAS" | "TRASH" | string; position: { score: number; x?: number; y?: number; [k: string]: unknown } };
   content: Record<string, unknown>;
   acl?: Record<string, number>; // root boards only; nested boards inherit
@@ -26,8 +26,8 @@ const READ = 1, WRITE = 2, ADMIN = 4, OWNER = READ | WRITE | ADMIN;
 const validUser = (u: unknown): u is string => typeof u === "string" && /^[\w-]{1,64}$/.test(u);
 
 // limits: one element is at most 200 KB of JSON (a stroke, a long note, a 100x20 table all fit); a connection can send 1000 actions in a burst (a big paste or import is one action per card), then 300 a second
-const TYPES = new Set(["BOARD", "CARD", "COLUMN", "LINE", "LINK", "SKETCH", "TABLE", "TASK_LIST", "DOCUMENT", "COMMENT_THREAD", "IMAGE"]);
-const MAX_ELEMENT = 200_000, BURST = 1000, PER_SECOND = 300, MAX_UPLOADS_PER_MINUTE = 30;
+const TYPES = new Set(["BOARD", "CARD", "COLUMN", "LINE", "LINK", "SKETCH", "SWATCH", "TABLE", "TASK_LIST", "DOCUMENT", "COMMENT_THREAD", "IMAGE"]);
+const MAX_ELEMENT = 200_000, BURST = 1000, PER_SECOND = 300, MAX_UPLOADS_PER_MINUTE = 30, MAX_FETCHES_PER_MINUTE = 150, MAX_SEARCHES_PER_MINUTE = 120;
 const small = (v: unknown) => JSON.stringify(v).length <= MAX_ELEMENT;
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 // what the browser may load: this server only (inline script/style because the client is one page), images from here, data: and blob: for export
@@ -54,7 +54,7 @@ type Result = { status: number; boards?: string[]; out?: unknown; ack?: Record<s
 // SQLite is write-through: the Map serves reads, every applied change is saved as a JSON row.
 export function createServer(port: number, dbFile = ":memory:", opts: { allowPrivateUnfurl?: boolean; host?: string; origins?: string[]; https?: boolean; backupDir?: string } = {}) {
   // link previews: ten minutes of cache, and at most 20 previews a minute per user
-  const previews = new Map<string, { at: number; data: unknown }>(), recent = new Map<string, number[]>(), uploads = new Map<string, number[]>();
+  const previews = new Map<string, { at: number; data: unknown }>(), recent = new Map<string, number[]>(), uploads = new Map<string, number[]>(), fetched = new Map<string, number[]>(), searched = new Map<string, number[]>();
   const db = new DatabaseSync(dbFile);
   db.exec("PRAGMA journal_mode = WAL"); // readers and the writer do not block each other; also what makes a live backup safe
   db.exec("CREATE TABLE IF NOT EXISTS elements (id TEXT PRIMARY KEY, json TEXT NOT NULL)");
@@ -103,6 +103,13 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
     return { perm: 0 };
   }
   const can = (user: string, boardId: string, bit: number) => (lookup(user, boardId).perm & bit) === bit;
+  // whether a card or board sits in some Trash (boardOf, above, gives the board a card is on)
+  const inTrash = (e: Element) => { for (let x: Element | undefined = e, n = 0; x && n < 40; x = els.get(x.location.parentId), n++) if (x.location.section === "TRASH") return true; return false; };
+  const textOf = (e: Element): string => { // every piece of text a card holds, as one string (what search looks through)
+    const c = e.content as Record<string, any>, list = (v: unknown) => (Array.isArray(v) ? v : []);
+    return [c.title, c.textContent, c.url, c.previewTitle, c.previewDesc, c.name, c.caption, ...list(c.tasks).map((t) => t?.text), ...list(c.rows).flat(), ...list(c.pins).map((p) => p?.text), ...list(c.messages).map((m) => m?.text)]
+      .filter((v) => typeof v === "string" && v).join(" · ");
+  };
   // Each user has one HOME root board, created on first request. Ids are random and joining never creates a board,
   // so nobody can squat an id. `content.owner` (not the acl) decides whose home it is, since an acl can be shared.
   function homeOf(user: string): string {
@@ -250,6 +257,41 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
     if (!validUser(user)) return reply(401);
     if (u.pathname === "/api/media" && req.method === "POST") return upload(req, res, user);
     if (u.pathname === "/api/users/me/app-init") return reply(200, { homeBoardId: homeOf(user) });
+    if (u.pathname === "/api/tree") { // every board this user can read (not in a Trash), for the boards panel: [{id, title, parent, icon, color}]
+      const boards = [...els.values()].filter((e) => e.elementType === "BOARD" && !inTrash(e) && can(user, e.id, READ));
+      return reply(200, { home: homeOf(user), boards: boards.map((b) => ({ id: b.id, title: String(b.content.title ?? ""), parent: boardOf(b.location.parentId), icon: b.content.icon ?? null, color: b.content.color ?? null })) });
+    }
+    if (u.pathname === "/api/search") { // text search across every board this user can read: [{id, board, boardTitle, type, snippet}]
+      const now = Date.now(), mine = (searched.get(user) ?? []).filter((t) => now - t < 60_000), q = (u.searchParams.get("q") ?? "").trim().toLowerCase().slice(0, 100);
+      if (mine.length >= MAX_SEARCHES_PER_MINUTE) return reply(429);
+      searched.set(user, [...mine, now]);
+      if (q.length < 2) return reply(200, { hits: [] });
+      const readable = new Map<string, boolean>(), hits: Record<string, unknown>[] = [];
+      for (const e of els.values()) {
+        if (hits.length >= 50) break;
+        if (e.content.rootType === "HOME" || e.elementType === "LINE" || e.elementType === "SKETCH") continue;
+        const text = textOf(e), at = text.toLowerCase().indexOf(q);
+        if (at < 0) continue;
+        const board = boardOf(e.location.parentId);
+        if (!board) continue;
+        if (!readable.has(board)) readable.set(board, can(user, board, READ));
+        if (!readable.get(board) || inTrash(e)) continue;
+        hits.push({ id: e.id, board, boardTitle: String(els.get(board)?.content.title ?? ""), type: e.elementType, snippet: text.slice(Math.max(0, at - 30), at + q.length + 60), at: Math.min(at, 30) });
+      }
+      return reply(200, { hits });
+    }
+    if (u.pathname === "/api/fetch-image") { // an image address from an imported file: fetched here (same address checks as link previews) and stored like an upload
+      const now = Date.now(), mine = (fetched.get(user) ?? []).filter((t) => now - t < 60_000);
+      if (mine.length >= MAX_FETCHES_PER_MINUTE) return reply(429);
+      fetched.set(user, [...mine, now]);
+      fetchImage(u.searchParams.get("url") ?? "", opts.allowPrivateUnfurl).then((img) => {
+        if (!Object.hasOwn(MAGIC, img.mime) || !MAGIC[img.mime](img.data)) return reply(422, { error: "not an image" });
+        const id = randomUUID();
+        insertMedia.run(id, img.mime, img.data, user, Date.now());
+        reply(200, { id });
+      }, () => reply(422, { error: "could not fetch" })); // one answer for every failure: the reason would show what exists on the internal network
+      return;
+    }
     if (u.pathname === "/api/unfurl") {
       const now = Date.now(), mine = (recent.get(user) ?? []).filter((t) => now - t < 60_000), target = u.searchParams.get("url") ?? "";
       if (mine.length >= 20) return reply(429);
