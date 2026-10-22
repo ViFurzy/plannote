@@ -42,6 +42,8 @@
            border-radius: var(--r); box-shadow: var(--shadow); }
   .tool { all: unset; box-sizing: border-box; width: 56px; padding: 8px 0 6px; display: grid; justify-items: center; gap: 2px;
           border-radius: calc(var(--r) - 2px); cursor: pointer; color: var(--muted); font-size: 11px; }
+  .tool { user-select: none; -webkit-user-select: none; touch-action: none; } /* a tool can be dragged out onto the board */
+  .tool.ghost { position: fixed; left: 0; top: 0; z-index: 30; pointer-events: none; opacity: .9; background: var(--surface); color: var(--accent); border: 1px solid var(--accent); box-shadow: var(--shadow); }
   .tool:hover { background: var(--accent-soft); color: var(--accent); }
   .tool:focus-visible { outline: 2px solid var(--accent); }
   .tool.drop { background: var(--accent-soft); color: var(--bad); } /* a card is being dragged over Trash */
@@ -81,6 +83,11 @@
   .grip.s { left: 0; bottom: -5px; width: 100%; height: 10px; cursor: ns-resize; }
   .grip.se { right: -7px; bottom: -7px; width: 16px; height: 16px; cursor: nwse-resize; z-index: 1; } /* above the two edges where they meet */
   .kids > .card > .grip { display: none; }
+  /* a selected card shows a bold corner where it can be held and resized (as on iOS); a bigger target than the edge strips */
+  .card.selected:not(.locked) > .grip.se { right: -8px; bottom: -8px; width: 28px; height: 28px; }
+  .card.selected:not(.locked) > .grip.se::after { content: ""; position: absolute; right: 6px; bottom: 6px; width: 14px; height: 14px; border-right: 4px solid var(--accent); border-bottom: 4px solid var(--accent); border-bottom-right-radius: var(--r); pointer-events: none; }
+  #search { position: absolute; left: 50%; transform: translateX(-50%); } /* centred in the top bar */
+  #top #search { border: 1px solid var(--line); border-radius: 999px; padding: 4px 14px; }
   .text, .title { outline: none; overflow-wrap: anywhere; }
   .note { width: 200px; padding: 10px 12px; }
   .text { white-space: pre-wrap; min-height: 1.45em; }
@@ -129,7 +136,7 @@
   .task textarea:focus { border-bottom-color: var(--accent); }
   .task input:checked + textarea { color: var(--muted); text-decoration: line-through; }
   .meta { color: var(--muted); font-size: 12px; padding-top: 4px; }
-  .note.heading { background: transparent !important; box-shadow: none; border-color: transparent; }
+  .note.heading:not([data-tint]) { background: transparent !important; box-shadow: none; border-color: transparent; } /* a heading is bare until it is given a colour */
   .note.heading { width: 360px; }
   .note.heading .text { overflow-wrap: break-word; word-break: normal; font: 700 30px/1.2 Georgia, "Times New Roman", serif; letter-spacing: -.01em; }
   .card.locked::after { content: ""; position: absolute; right: 6px; top: 6px; width: 14px; height: 14px; opacity: .45; pointer-events: none;
@@ -144,7 +151,7 @@
   #presenthint { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 6px 14px; border-radius: 99px; background: var(--surface); box-shadow: var(--shadow-lift); font-size: 13px; display: none; z-index: 40; }
   body.presenting #presenthint { display: block; animation: hint 3.2s forwards; }
   @keyframes hint { 0%, 70% { opacity: 1 } 100% { opacity: 0; visibility: hidden } }
-  body.presenting #tools, body.presenting #top, body.presenting #zoom, body.presenting #trash, body.presenting #ctx, body.presenting #bgpop, body.presenting #drawbar, body.presenting #fmt, body.presenting #bpanel, body.presenting #outline { display: none !important; }
+  body.presenting #tools, body.presenting #top, body.presenting #zoom, body.presenting #trash, body.presenting #ctx, body.presenting #bgpop, body.presenting #setpop, body.presenting #drawbar, body.presenting #fmt, body.presenting #bpanel, body.presenting #outline { display: none !important; }
   body.presenting { background-image: none !important; }
   body.presenting .grip, body.presenting .img-tools, body.presenting .tbl-tools, body.presenting .h { display: none !important; }
   .sheet { min-width: 260px; padding: 8px; }
@@ -206,11 +213,30 @@
   .line.selected :is(.vis, .head) { filter: drop-shadow(0 0 3px var(--accent)); } /* the colour is the user's choice, so selection is a glow */
   /* floating option bars that follow the selection (line style, colour, board icon) */
   /* the options panel, docked on the left next to the tools: text options while a note is edited, picture options for a picture, colours, lines, pen... */
-  #ctx { position: fixed; top: 58px; left: 92px; z-index: 9; display: flex; flex-direction: column; align-items: stretch; gap: 8px; pointer-events: none; width: 276px; max-height: calc(100vh - 150px); overflow-y: auto; scrollbar-width: thin; }
-  #ctx .pill { gap: 8px 10px; flex-wrap: wrap; justify-content: flex-start; align-items: center; }
-  #ctx .pill > .lab:first-child { flex: 0 0 100%; font-size: 12px; font-weight: 600; }
+  /* the options bar: ONE floating line under the top bar, centred. Each option group that applies to the selection sits side by side in it, split by hairlines;
+     it is absent when nothing is selected, and scrolls sideways (no wrapping) when the screen is narrower than its content */
+  #ctx { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); z-index: 8; display: flex; align-items: center; gap: 0; padding: 4px 6px; max-width: calc(100vw - 16px); min-height: 44px; box-sizing: border-box;
+         background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); }
+  #ctx:not(:has(> .pill:not([hidden]))) { display: none; }
+  #ctx .pill { flex: 0 0 auto; flex-wrap: nowrap; gap: 4px; padding: 0 8px; background: none; border: 0; border-radius: 0; box-shadow: none; white-space: nowrap; align-items: center; }
+  #ctx .pill:not([hidden]) ~ .pill:not([hidden]) { border-left: 1px solid var(--line); }
+  #ctx .pill > .lab:first-child { font-size: 12px; font-weight: 600; margin-right: 4px; }
+  #ctx .seg { flex-wrap: nowrap; gap: 4px; }
+  #ctx #drawbar > .lab:last-child { display: none; } /* the hint is in the pen's tooltip */
+  #fmt { position: relative; }
+  #fmtPal { position: absolute; left: 0; top: calc(100% + 10px); z-index: 2; padding: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); } /* text colours drop down under the bar */
+  #fmtPal[hidden] { display: none; }
+  @media (max-width: 1100px) { #st { font-size: 0; gap: 0; padding: 0 6px; } } /* the status is just its dot on tablets, so the centred search has room */
+  @media (max-width: 900px) { #ctx { overflow-x: auto; scrollbar-width: none; } #ctx::-webkit-scrollbar { display: none; } #fmtPal { position: static; padding: 0; border: 0; box-shadow: none; } }
   #bgpop { position: fixed; top: 56px; left: 84px; z-index: 10; flex-direction: column; align-items: flex-start; gap: 8px; }
   .lab { color: var(--muted); font-size: 12px; }
+  .btn.ic { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; }
+  .btn.ic svg { width: 20px; height: 20px; }
+  #fmt { gap: 4px; } #fmt .btn.ic { width: 32px; height: 32px; } #fmt .btn.ic svg { width: 18px; height: 18px; }
+  #fmt .gap { flex: 0 0 1px; align-self: stretch; background: var(--line); margin: 4px 4px; } /* a hairline between the groups of the text bar */
+  #fmt .size { display: flex; align-items: center; gap: 2px; } #fmt .size input { width: 46px; height: 32px; box-sizing: border-box; text-align: center; font: inherit; font-size: 13px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: calc(var(--r) - 2px); }
+  #fmt .size input:focus { outline: 2px solid var(--accent); }
+  .seg { flex-wrap: wrap; } /* a row of colours wraps inside its panel instead of running out of it */
   .seg .ic { width: 30px; height: 30px; padding: 3px; display: grid; place-items: center; }
   .seg .ic svg { width: 20px; height: 20px; }
   .seg .sw.none { background: var(--surface); border-style: dashed; }
@@ -276,13 +302,14 @@
   #precent .sw { width: 22px; height: 22px; padding: 0; border-radius: 50%; }
 
   /* export menu (after Milanote's: layout, linear document, images) and the import dialog */
+  #setpop { position: fixed; top: 56px; right: 12px; z-index: 10; flex-direction: column; align-items: stretch; gap: 2px; padding: 8px; min-width: 190px; }
   #expop { position: fixed; top: 56px; right: 12px; z-index: 10; flex-direction: column; align-items: stretch; gap: 2px; width: 330px; padding: 10px; }
   #expop[hidden] { display: none; }
   #expop h4 { margin: 8px 6px 2px; font-size: 12px; color: var(--muted); font-weight: 600; }
   #expop h4:first-child { margin-top: 2px; }
-  #expop .item { all: unset; display: flex; align-items: center; gap: 8px; padding: 6px; border-radius: calc(var(--r) - 2px); cursor: pointer; color: var(--ink); }
-  #expop .item:hover { background: var(--accent-soft); }
-  #expop .item:focus-visible { outline: 2px solid var(--accent); }
+  #expop .item, #setpop .item { all: unset; display: flex; align-items: center; gap: 8px; padding: 6px; border-radius: calc(var(--r) - 2px); cursor: pointer; color: var(--ink); }
+  #expop .item:hover, #setpop .item:hover { background: var(--accent-soft); }
+  #expop .item:focus-visible, #setpop .item:focus-visible { outline: 2px solid var(--accent); }
   #expop button.item[disabled] { opacity: .45; cursor: default; pointer-events: none; }
   #exmsg { min-height: 1.45em; padding: 4px 6px 0; }
   #impdlg { position: fixed; top: 110px; left: 50%; transform: translateX(-50%); z-index: 12; width: 400px; max-width: calc(100vw - 24px); padding: 14px; display: grid; gap: 12px;
@@ -348,8 +375,8 @@
   #outlineBtn.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
   /* touch: the board is moved by our own gestures (one finger pans, two pinch), so the browser must not scroll or zoom the page; lists that scroll say so */
   body { touch-action: none; }
-  #outline { touch-action: pan-y pinch-zoom; } #ctx, #bpanel, #expop, #bgpop, #trash, #impdlg { touch-action: pan-y; } #tools { touch-action: pan-x pan-y; }
-  @media (pointer: coarse) { .btn { min-height: 40px; min-width: 40px; } .seg .sw { width: 32px; height: 32px; } #expop .item { min-height: 40px; } }
+  #outline { touch-action: pan-y pinch-zoom; } #ctx, #bpanel, #expop, #setpop, #bgpop, #trash, #impdlg { touch-action: pan-y; } #tools { touch-action: pan-x pan-y; }
+  @media (pointer: coarse) { .btn { min-height: 40px; min-width: 40px; } .seg .sw { width: 32px; height: 32px; } #expop .item, #setpop .item { min-height: 40px; } }
   @media (max-width: 640px) {
     /* phone: the top bar is one row you can swipe sideways; the tools sit along the bottom; the options panel is a sheet above them; zoom is under the top bar */
     #top { gap: 6px; padding: 4px 8px; }
@@ -357,17 +384,18 @@
     #side::-webkit-scrollbar { display: none; }
     #side > .pill { flex: 0 0 auto; } #side > .pill + .pill { padding-left: 8px; margin-left: 0; }
     #crumbs { max-width: 38vw; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: block; line-height: 40px; }
-    #search input { width: 96px; } #qcount { display: none; }
+    #search, #top #search { position: static; transform: none; padding: 4px 10px; } #search input { width: 64px; } #qcount { display: none; }
     #st { font-size: 0; gap: 0; padding: 0 6px; }
     #tools { top: auto; bottom: max(8px, env(safe-area-inset-bottom)); left: 8px; right: 8px; transform: none; flex-direction: row; overflow-x: auto; overflow-y: hidden; max-height: none; gap: 0; scrollbar-width: none; }
-    .tool { flex: 0 0 auto; width: 64px; min-height: 52px; white-space: nowrap; font-size: 11px; }
+    .tool { touch-action: pan-x; flex: 0 0 auto; width: 64px; min-height: 52px; white-space: nowrap; font-size: 11px; }
     .sep { flex: 0 0 1px; width: 1px; height: auto; margin: 8px 4px; }
     #zoom { top: 58px; right: 8px; bottom: auto; }
     #trash { left: 8px; right: 8px; width: auto; bottom: 84px; }
-    #ctx { left: 8px; right: 8px; top: auto; bottom: calc(max(8px, env(safe-area-inset-bottom)) + 70px); width: auto; max-height: 40vh; }
-    #bgpop, #expop, #bpanel { max-width: calc(100vw - 16px); max-height: calc(100vh - 140px); overflow-y: auto; }
+    #ctx { top: auto; bottom: calc(max(8px, env(safe-area-inset-bottom)) + 70px); } /* phone: the options bar sits above the tool strip, in reach of the thumb */
+    #fmtPal { position: static; }
+    #bgpop, #setpop, #expop, #bpanel { max-width: calc(100vw - 16px); max-height: calc(100vh - 140px); overflow-y: auto; }
     #impdlg { top: 64px; }
-    #outline { padding: 14px 12px 96px; } #ctx .seg, #bgpop .seg { flex-wrap: wrap; }
+    #outline { padding: 14px 12px 96px; } #bgpop .seg { flex-wrap: wrap; }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -404,13 +432,13 @@
 <div id="top">
   <div id="side">
     <div class="pill" id="crumbs"></div>
-    <div class="pill" id="history"><button class="btn" id="undo" disabled title="Undo (Ctrl+Z)">Undo</button><button class="btn" id="redo" disabled title="Redo (Ctrl+Shift+Z)">Redo</button></div>
-    <div class="pill" id="search"><input id="q" name="q" placeholder="Search this board  ( / )" autocomplete="off" aria-label="Search this board"><span id="qcount" class="lab"></span></div>
-    <div class="pill"><button class="btn" id="boardsBtn" title="All your boards, the ones you visited last, and search across all of them (Ctrl+F)">Boards</button><button class="btn" id="outlineBtn" title="This board as a list you can read, edit and copy">Outline</button></div>
-    <div class="pill"><button class="btn" id="bgBtn" title="Board background">Background</button><button class="btn" id="presentBtn" title="Full screen without the toolbar (Esc to leave)">Present</button><button class="btn" id="themeBtn" title="Light or dark (Ctrl+Shift+D)">Theme</button></div>
-    <div class="pill"><button class="btn" id="expBtn" title="Export this board">Export</button><button class="btn" id="impBtn" title="Import a board">Import</button></div>
+    <div class="pill"><button class="btn" id="boardsBtn" title="All your boards, the ones you visited last, and search across all of them (Ctrl+F)">Boards</button></div>
   </div>
+  <div class="pill" id="search"><input id="q" name="q" placeholder="Search this board  ( / )" autocomplete="off" aria-label="Search this board"><span id="qcount" class="lab"></span></div>
   <div class="pill" id="st" data-state="wait">Connecting</div>
+  <button class="btn ic" id="undo" disabled aria-label="Undo" title="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+  <button class="btn ic" id="redo" disabled aria-label="Redo" title="Redo (Ctrl+Shift+Z)"><svg viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg></button>
+  <button class="btn ic" id="gearBtn" aria-label="Settings" title="Settings: background, theme, export, import"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8"/></svg></button>
 </div>
 <div class="pill" id="bpanel" hidden>
   <input id="bq" name="bq" placeholder="Search all boards" autocomplete="off" aria-label="Search all boards">
@@ -420,6 +448,12 @@
   <div id="olist"></div>
 </div>
 <div id="presenthint">Press Esc to leave presentation mode</div>
+<div class="pill" id="setpop" hidden>
+  <button class="item" id="bgBtn" title="Board background">Background</button>
+  <button class="item" id="themeBtn" title="Light or dark (Ctrl+Shift+D)">Theme: light / dark</button>
+  <button class="item" id="expBtn" title="Export this board">Export</button>
+  <button class="item" id="impBtn" title="Import a board">Import</button>
+</div>
 <div class="pill" id="bgpop" hidden>
   <span class="lab">Pattern</span>
   <div class="seg" data-prop="bg"><button class="btn" data-val="dots">Dots</button><button class="btn" data-val="grid">Grid</button><button class="btn" data-val="plain">Plain</button></div>
@@ -465,27 +499,29 @@
   <div id="pnum"></div>
   <div id="precent"></div>
 </div>
-<div id="ctx">
+<div id="ctx" role="toolbar" aria-label="Options for the selection">
 <div class="pill" id="drawbar" hidden><span class="lab">Pen</span><div class="seg" data-prop="pen"></div><span class="lab" style="flex:0 0 100%">Every stroke is saved as you lift the pen. Esc to stop.</span></div>
 <div class="pill" id="imgbar" hidden><span class="lab">Picture</span>
   <button class="btn" id="imgPal" title="Make colour cards from this picture">Colours</button><button class="btn" id="imgCrop">Crop</button><button class="btn" id="imgReset" hidden>Reset</button><button class="btn" id="imgPin" title="Click the picture to leave a numbered note on it">Pin</button><button class="btn" id="imgRotate" title="Turn the picture 90 degrees clockwise">Rotate</button><button class="btn" id="imgDownload" title="Save the whole picture (not the crop)">Download</button><button class="btn" id="imgOpen">Open</button>
 </div>
 <div class="pill" id="fmt" hidden>
-  <button class="btn" data-c="bold" title="Bold (Ctrl+B)"><b>B</b></button>
-  <button class="btn" data-c="italic" title="Italic (Ctrl+I)"><i>I</i></button>
-  <button class="btn" data-c="underline" title="Underline (Ctrl+U)"><u>U</u></button>
-  <button class="btn" data-c="strikeThrough" title="Strikethrough"><s>S</s></button>
-  <button class="btn" data-c="insertUnorderedList" title="Bulleted list">&bull; List</button>
-  <button class="btn" data-c="insertOrderedList" title="Numbered list">1. List</button>
-  <button class="btn" data-c="heading" title="Heading (# then Space)">Heading</button>
-  <button class="btn" data-c="quote" title="Quote (&gt; then Space)">Quote</button>
-  <button class="btn" data-c="code" title="Code block">Code</button>
-  <button class="btn" data-c="highlight" title="Highlight (Ctrl+J)">Highlight</button>
-  <button class="btn" data-c="link" title="Link (Ctrl+K)">Link</button>
-  <button class="btn" data-c="center" title="Centre (Ctrl+\)">Centre</button>
-  <button class="btn" data-c="sizeDown" title="Smaller text (select some text first)">A-</button>
-  <button class="btn" data-c="sizeUp" title="Larger text (select some text first)">A+</button>
-  <button class="btn" data-c="colour" title="Text colour">Colour</button>
+  <button class="btn ic" data-c="bold" title="Bold (Ctrl+B)" aria-label="Bold"><svg viewBox="0 0 24 24"><path d="M7 5h6a3.5 3.5 0 0 1 0 7H7zM7 12h7a3.5 3.5 0 0 1 0 7H7z"/></svg></button>
+  <button class="btn ic" data-c="italic" title="Italic (Ctrl+I)" aria-label="Italic"><svg viewBox="0 0 24 24"><path d="M10 5h7M7 19h7M14 5l-4 14"/></svg></button>
+  <button class="btn ic" data-c="underline" title="Underline (Ctrl+U)" aria-label="Underline"><svg viewBox="0 0 24 24"><path d="M7 5v6a5 5 0 0 0 10 0V5M5 20h14"/></svg></button>
+  <button class="btn ic" data-c="strikeThrough" title="Strikethrough" aria-label="Strikethrough"><svg viewBox="0 0 24 24"><path d="M4 12h16M16.5 7.5A4.5 3.5 0 0 0 12 5c-2.5 0-4.5 1.3-4.5 3.2 0 4 9 2.3 9 6.6 0 2-2 3.2-4.5 3.2a4.7 3.5 0 0 1-4.7-2.5"/></svg></button>
+  <span class="gap"></span>
+  <button class="btn ic" data-c="insertUnorderedList" title="Bulleted list" aria-label="Bulleted list"><svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r=".8"/><circle cx="4.5" cy="12" r=".8"/><circle cx="4.5" cy="18" r=".8"/></svg></button>
+  <button class="btn ic" data-c="insertOrderedList" title="Numbered list" aria-label="Numbered list"><svg viewBox="0 0 24 24"><path d="M10 6h10M10 12h10M10 18h10M4 5l1.5-1v4M4 14.5c0-1.4 3-1.4 3 0 0 1-3 2.3-3 3h3"/></svg></button>
+  <button class="btn ic" data-c="heading" title="Heading (# then Space)" aria-label="Heading"><svg viewBox="0 0 24 24"><path d="M5 5v14M15 5v14M5 12h10M18 19h3"/></svg></button>
+  <button class="btn ic" data-c="quote" title="Quote (&gt; then Space)" aria-label="Quote"><svg viewBox="0 0 24 24"><path d="M5 17v-4a5 5 0 0 1 4-5M5 13h4v4H5zM14 17v-4a5 5 0 0 1 4-5M14 13h4v4h-4z"/></svg></button>
+  <button class="btn ic" data-c="code" title="Code block" aria-label="Code block"><svg viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 5l-3 14"/></svg></button>
+  <span class="gap"></span>
+  <button class="btn ic" data-c="highlight" title="Highlight (Ctrl+J)" aria-label="Highlight"><svg viewBox="0 0 24 24"><path d="M14 4l6 6-8 8H7l-3-3 1-1zM9 9l6 6M4 21h8"/></svg></button>
+  <button class="btn ic" data-c="link" title="Link (Ctrl+K)" aria-label="Link"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></button>
+  <button class="btn ic" data-c="center" title="Centre (Ctrl+\)" aria-label="Centre"><svg viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M5 18h14"/></svg></button>
+  <button class="btn ic" data-c="colour" title="Text colour" aria-label="Text colour"><svg viewBox="0 0 24 24"><path d="M7 15l5-11 5 11M9 11h6M5 20h14"/></svg></button>
+  <span class="gap"></span>
+  <span class="size" title="Text size in px (select some text first)"><button class="btn ic" data-c="sizeDown" title="Smaller" aria-label="Smaller text"><svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg></button><input id="fsize" type="number" min="6" max="400" step="1" inputmode="numeric" aria-label="Text size in px" placeholder="px"><button class="btn ic" data-c="sizeUp" title="Larger" aria-label="Larger text"><svg viewBox="0 0 24 24"><path d="M6 12h12M12 6v12"/></svg></button></span>
   <span class="seg" id="fmtPal" hidden></span>
 </div>
 <div class="pill" id="linebar" hidden>
@@ -503,7 +539,7 @@
 <div id="canvas"></div>
 <div id="hint">Add a note, to-do, link, image, column or board from the toolbar.<br>Drag empty space to select cards. Scroll to pan, Ctrl+scroll to zoom. Double-click a card to edit it.<br>Ctrl+C, Ctrl+V and Ctrl+D copy, paste and duplicate; Alt-drag copies. Arrow keys nudge (Shift: further). Press / to search.</div>
 <div id="marquee" hidden></div>
-<div class="pill" id="zoom"><button class="btn" id="zfit" title="Fit all cards on screen (Shift+1)">Fit</button><button class="btn" id="zout" aria-label="Zoom out">-</button><button class="btn" id="zreset" title="Reset zoom">100%</button><button class="btn" id="zin" aria-label="Zoom in">+</button></div>
+<div class="pill" id="zoom"><button class="btn" id="zfit" title="Fit all cards on screen (Shift+1)">Fit</button><button class="btn" id="zout" aria-label="Zoom out">-</button><button class="btn" id="zreset" title="Reset zoom">100%</button><button class="btn" id="zin" aria-label="Zoom in">+</button><button class="btn ic" id="outlineBtn" aria-label="Outline" title="This board as a list you can read, edit and copy"><svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r=".8"/><circle cx="4.5" cy="12" r=".8"/><circle cx="4.5" cy="18" r=".8"/></svg></button><button class="btn ic" id="presentBtn" aria-label="Full screen" title="Full screen without the toolbar (Esc to leave)"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button></div>
 <div id="trash"></div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -809,7 +845,7 @@ $("iconbar").querySelector(".seg").innerHTML = ICON_NAMES.map((n) => `<button cl
 const applyTo = (types, changes) => updateMany([...sel].filter((id) => types.has(els[id]?.elementType)).map((id) => ({ id, changes }))); // one action, one undo step
 const firstHex = (values) => values.find((v) => HEX.test(v ?? ""));
 // the formatting bar shows while a note's text is being edited. Its buttons must not take focus from the text, so mousedown is cancelled.
-$("fmt").onmousedown = (e) => e.preventDefault();
+$("fmt").onmousedown = (e) => { if (e.target !== $("fsize")) e.preventDefault(); };
 const toggleBlock = (tag) => document.execCommand("formatBlock", false, document.queryCommandValue("formatBlock").toLowerCase() === tag ? "div" : tag);
 const inside = (sel, tag) => (sel.anchorNode?.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode)?.closest?.(tag);
 function toggleMark() { // highlight: wrap the selection in <mark>, or unwrap when the caret is already in one
@@ -840,16 +876,26 @@ function textColour(hex) { // the browser writes the colour as a span; the sanit
   const s = getSelection(), r = s.rangeCount && s.getRangeAt(0); // the default colour: take the colour off the spans the selection touches
   if (r) t.querySelectorAll("span").forEach((sp) => { if (!r.intersectsNode(sp)) return; sp.style.removeProperty("color"); if (!sp.getAttribute("style")?.trim()) sp.replaceWith(...sp.childNodes); });
 }
-const TEXT_SIZES = [12, 14, 18, 24, 32];
-function textSize(step) { // one size up or down for the selected text, from the nearest size it has now
+// the size box shows the size of the selected text; Enter (or the - and + buttons, 1px) sets it. Typing in the box moves focus out of the note, so the selection is kept here.
+let keptRange = null;
+const sizeNow = () => { const s = getSelection(), at = s.anchorNode?.nodeType === 3 ? s.anchorNode.parentElement : s.anchorNode; return at ? Math.round(parseFloat(getComputedStyle(at).fontSize)) : 0; };
+document.addEventListener("selectionchange", () => {
   const t = noteText(), s = getSelection();
-  if (!t || !s.rangeCount || s.isCollapsed) return;
-  const at = s.anchorNode.nodeType === 3 ? s.anchorNode.parentElement : s.anchorNode, now = parseFloat(getComputedStyle(at).fontSize);
-  const i = TEXT_SIZES.reduce((best, v, k) => (Math.abs(v - now) < Math.abs(TEXT_SIZES[best] - now) ? k : best), 0), next = TEXT_SIZES[clamp(i + step, 0, TEXT_SIZES.length - 1)];
+  if (!t || !s.rangeCount || !t.contains(s.anchorNode)) return;
+  keptRange = s.getRangeAt(0).cloneRange(); $("fsize").value = sizeNow() || "";
+});
+function textSize(px) { // px for the selected text (6 to 400)
+  const t = noteText();
+  if (!t || !keptRange || keptRange.collapsed || !px) return;
+  if (document.activeElement !== t) t.focus();
+  const s = getSelection(); s.removeAllRanges(); s.addRange(keptRange);
+  const next = clamp(Math.round(px), 6, 400);
   document.execCommand("styleWithCSS", false, true); document.execCommand("fontSize", false, "7"); document.execCommand("styleWithCSS", false, false); // the browser splits the text and marks the pieces...
   t.querySelectorAll('span[style*="xxx-large"], font[size="7"]').forEach((m) => { m.removeAttribute("size"); m.style.fontSize = next + "px"; }); // ...and we give them the size we want
+  t.dispatchEvent(new Event("input")); $("fsize").value = next;
 }
-Object.assign(FMT, { sizeUp: () => textSize(1), sizeDown: () => textSize(-1), colour: () => { $("fmtPal").hidden = !$("fmtPal").hidden; } });
+$("fsize").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); textSize(+e.target.value); } e.stopPropagation(); };
+Object.assign(FMT, { sizeUp: () => textSize((+$("fsize").value || sizeNow()) + 1), sizeDown: () => textSize((+$("fsize").value || sizeNow()) - 1), colour: () => { $("fmtPal").hidden = !$("fmtPal").hidden; } });
 $("fmtPal").innerHTML = inkSwatches("data-color");
 $("fmt").onclick = (e) => {
   const sw = e.target.closest("[data-color]");
@@ -867,8 +913,12 @@ function markdownShortcut(root) {
   run();
   return true;
 }
-addEventListener("focusin", (e) => { $("fmt").hidden = !e.target.matches?.(".note .text[contenteditable=true]"); });
-addEventListener("focusout", (e) => { if (e.target.matches?.(".note .text")) $("fmt").hidden = $("fmtPal").hidden = true; });
+addEventListener("focusin", (e) => { if (!e.target.closest?.("#fmt")) $("fmt").hidden = !e.target.matches?.(".note .text[contenteditable=true]"); }); // focus inside the bar (the size box) keeps it open
+addEventListener("focusout", (e) => { // the bar stays while focus moves to its own size box, and goes when focus leaves both
+  if (!e.target.matches?.(".note .text, #fsize") || e.relatedTarget?.closest?.("#fmt, .note .text[contenteditable=true]")) return;
+  $("fmt").hidden = $("fmtPal").hidden = true;
+  if (e.target.id === "fsize") noteText()?.onblur?.(); // the size box was the last thing focused: close the note it was keeping open
+});
 $("colorbar").onclick = (e) => {
   const b = e.target.closest("button[data-val]");
   if (!b) return;
@@ -1005,7 +1055,7 @@ function applyBg() {
 }
 $("bgBtn").onclick = () => { $("bgpop").hidden = !$("bgpop").hidden; applyBg(); };
 // top-bar popups: each opens right under the button that owns it, and closes on a click elsewhere or Esc
-const POPS = [["bgpop", "bgBtn"], ["expop", "expBtn"], ["bpanel", "boardsBtn"]];
+const POPS = [["setpop", "gearBtn"], ["bgpop", "gearBtn"], ["expop", "gearBtn"], ["bpanel", "boardsBtn"]]; // the settings menu owns background and export: they open under the gear
 function placePop([pop, btn]) {
   const p = $(pop), r = $(btn).getBoundingClientRect();
   if (p.hidden) return;
@@ -1418,7 +1468,7 @@ function wire(d) {
     html && hasFormatting(cleanHtml(html)) ? document.execCommand("insertHTML", false, cleanHtml(html)) : document.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
   });
   if (t) {
-    t.onblur = () => { t.contentEditable = "false"; (flush() ?? Promise.resolve()).then(() => el() && render(el())); }; // re-render: drop local text that lost a 409
+    t.onblur = (e) => { if (e?.relatedTarget?.closest?.("#fmt")) return; /* focus went to the size box: the note stays open */ t.contentEditable = "false"; (flush() ?? Promise.resolve()).then(() => el() && render(el())); }; // re-render: drop local text that lost a 409
     t.oninput = () => { pending = true; clearTimeout(timer); timer = setTimeout(flush, 400); };
   }
 
@@ -1690,7 +1740,7 @@ const SIZE = { CARD: [200, 64], COLUMN: [240, 140], BOARD: [124, 150], TASK_LIST
 function freeSpot(type) {
   const [w, h] = SIZE[type], gap = 16;
   const taken = topCards().map((c) => { const r = c.getBoundingClientRect(), a = toBoard(r.left, r.top), b = toBoard(r.right, r.bottom); return { l: a.x, t: a.y, r: b.x, b: b.y }; });
-  const o = toBoard(innerWidth > 720 ? 390 : 24, innerWidth > 720 ? 80 : 120), far = toBoard(innerWidth, innerHeight); // new cards start to the right of the options panel, below the top bar
+  const o = toBoard(innerWidth > 720 ? 110 : 24, 130), far = toBoard(innerWidth, innerHeight); // new cards start right of the tool strip, below the options bar
   for (let y = o.y; y < far.y - h; y += 24)
     for (let x = o.x; x < far.x - w; x += 24)
       if (!taken.some((k) => x < k.r + gap && x + w + gap > k.l && y < k.b + gap && y + h + gap > k.t)) return { x: Math.round(x), y: Math.round(y) };
@@ -1715,7 +1765,8 @@ function commit(el, { select = true } = {}) {
     else pushHistory({ kind: "move", moves: [{ id: el.id, from: trashed, to: home }] }); // undoing a creation sends it to the Trash; redo brings it back
   });
 }
-const add = (elementType, content, pos = freeSpot(elementType)) => commit(newElement(elementType, content, pos));
+let dropPos = null; // set for the instant a tool dragged out of the left panel creates its card: where it was dropped
+const add = (elementType, content, pos = dropPos ?? freeSpot(elementType)) => commit(newElement(elementType, content, pos));
 
 const downloadImage = (el) => Object.assign(document.createElement("a"), { href: "/api/media/" + el.content.mediaId, download: el.content.name || "image" }).click(); // the stored file: a crop never changes it
 // Rotate: the picture is turned 90 degrees clockwise and stored as a new one (the card points at it; undo points it back). The crop rectangle and the
@@ -2009,6 +2060,8 @@ function present(on = !document.body.classList.contains("presenting")) {
 document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement && document.body.classList.contains("presenting")) present(false); });
 $("presentBtn").onclick = () => present(true);
 $("themeBtn").onclick = toggleTheme;
+$("gearBtn").onclick = () => { $("bgpop").hidden = $("expop").hidden = true; $("setpop").hidden = !$("setpop").hidden; };
+$("setpop").onclick = (e) => { if (e.target.closest(".item")) $("setpop").hidden = true; };
 
 // --- tools: line and freehand drawing ---
 function setTool(t) {
@@ -2095,6 +2148,35 @@ $("table").onclick = () => add("TABLE", { rows: [["", "", ""], ["", "", ""], [""
 $("col").onclick = () => add("COLUMN", { title: "" });
 $("brd").onclick = () => add("BOARD", { title: "" });
 
+// Drag a tool out of the left panel onto the board: the same card a click adds, but centred under the pointer. Works with mouse, pen and touch.
+const TOOL_TYPE = { note: "CARD", todo: "TASK_LIST", heading: "CARD", swatch: "SWATCH", table: "TABLE", link: "LINK", image: "IMAGE", comment: "COMMENT_THREAD", col: "COLUMN", brd: "BOARD" };
+let toolDrag = null, ghost = null, justDragged = false;
+$("tools").addEventListener("pointerdown", (e) => {
+  const b = e.target.closest(".tool");
+  if (b && TOOL_TYPE[b.id] && e.button === 0) toolDrag = { b, x: e.clientX, y: e.clientY, on: false };
+});
+addEventListener("pointermove", (e) => {
+  if (!toolDrag) return;
+  if (!toolDrag.on) {
+    if (Math.hypot(e.clientX - toolDrag.x, e.clientY - toolDrag.y) < 8) return; // below this it is still a click
+    toolDrag.on = true; ghost = toolDrag.b.cloneNode(true); ghost.removeAttribute("id"); ghost.classList.add("ghost"); document.body.append(ghost);
+  }
+  ghost.style.transform = `translate(${e.clientX - 28}px, ${e.clientY - 28}px)`;
+});
+const endToolDrag = (e, drop) => {
+  const d = toolDrag; toolDrag = null;
+  if (!d?.on) return;
+  ghost?.remove(); ghost = null; justDragged = true; setTimeout(() => (justDragged = false));
+  if (!drop || document.elementFromPoint(e.clientX, e.clientY)?.closest("#tools, #top, #ctx, #zoom, #bpanel, #outline, #trash, #setpop, #bgpop, #expop")) return; // dropped on the chrome: nothing is added
+  const w = d.b.id === "heading" ? 360 : SIZE[TOOL_TYPE[d.b.id]][0], p = toBoard(e.clientX, e.clientY), at = { x: Math.round(p.x - w / 2), y: Math.round(p.y - 24) };
+  if (d.b.id === "image") { picAt = at; picFor = null; $("file").click(); return; }
+  dropPos = at; try { d.b.onclick(); } finally { dropPos = null; }
+};
+addEventListener("pointerup", (e) => endToolDrag(e, true));
+addEventListener("pointercancel", (e) => endToolDrag(e, false));
+addEventListener("keydown", (e) => { if (e.key === "Escape" && toolDrag?.on) endToolDrag(e, false); }, true);
+$("tools").addEventListener("click", (e) => { if (justDragged) { e.stopPropagation(); e.preventDefault(); } }, true); // the release over the panel is not a click
+
 // images: picker, drag-and-drop from the desktop, or paste. The server checks type, real bytes and the 5 MB cap.
 const IMG_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 let picFor = null; // set while the file picker was opened from a link card
@@ -2118,10 +2200,11 @@ async function uploadMany(files) {
   const kids = done.map(([f, mediaId], j) => ({ ...newElement("IMAGE", { mediaId, name: f.name }, {}), location: { parentId: col.id, section: "COLUMN", position: { score: 65536 * (j + 1) } } }));
   commitMany([col], kids);
 }
-$("image").onclick = () => { picFor = null; $("file").click(); };
+let picAt = null; // where a picture dragged out of the left panel was dropped (the file picker opens after the drop)
+$("image").onclick = () => { picFor = null; picAt = null; $("file").click(); };
 $("file").onchange = (e) => {
-  const link = picFor, files = [...e.target.files]; picFor = null; e.target.value = "";
-  if (!link && files.length > 1) uploadMany(files); else files.forEach((f) => uploadImage(f, undefined, link));
+  const link = picFor, at = picAt ?? undefined, files = [...e.target.files]; picFor = null; picAt = null; e.target.value = "";
+  if (!link && files.length > 1) uploadMany(files); else files.forEach((f, i) => uploadImage(f, i ? undefined : at, link));
 };
 addEventListener("dragover", (e) => e.dataTransfer?.types.includes("Files") && e.preventDefault());
 addEventListener("drop", (e) => {
@@ -2230,7 +2313,7 @@ async function enter() {
   const next = location.hash.slice(1) || HOME;
   const ack = await new Promise((r) => s.emit("update-channels", { joined: [next + "-LIVE"], left: joined ? [joined] : [] }, r));
   if (next !== B) {
-    $("canvas").innerHTML = ""; els = {}; sel = new Set(); counts = {}; history.undo = []; history.redo = []; syncHistory();
+    $("canvas").innerHTML = ""; els = {}; setSel([]); counts = {}; /* the option panels belong to the selection, so they go with it */ history.undo = []; history.redo = []; syncHistory();
     view = loadView(next); applyView(false); // not saved: B is still the old board here, and a pending save for it must not be replaced
     $("q").value = ""; runSearch(); $("bgpop").hidden = true;
   } // a reconnect keeps the canvas and the view; load() below reconciles it with the server

@@ -230,12 +230,12 @@ await test("search dims the rest and finds a card by its text", async ({ page })
 
 await test("export a board file and import it back as a new board", async ({ page }) => {
   await add(page, "note", "keep me"); await add(page, "todo", "List");
-  await page.click("#expBtn");
+  await page.click("#gearBtn"); await page.click("#expBtn");
   const [dl] = await Promise.all([page.waitForEvent("download"), page.click('#expop [data-x="json"]')]);
   const dir = mkdtempSync(join(tmpdir(), "e2e-dl-")), file = join(dir, "board.boardsync.json");
   await dl.saveAs(file);
   await page.keyboard.press("Escape");
-  await page.click("#impBtn"); await page.setInputFiles("#impfile", file);
+  await page.click("#gearBtn"); await page.click("#impBtn"); await page.setInputFiles("#impfile", file);
   await page.waitForFunction(() => !(document.getElementById("impgo") as HTMLButtonElement).disabled);
   await page.click("#impgo");
   await page.waitForFunction(() => /Imported/.test(document.getElementById("impinfo")!.textContent!), null, { timeout: 15000 });
@@ -250,7 +250,7 @@ await test("export a board file and import it back as a new board", async ({ pag
 await test("import a Milanote-style Markdown file", async ({ page }) => {
   const dir = mkdtempSync(join(tmpdir(), "e2e-md-")), file = join(dir, "milanote.md");
   writeFileSync(file, "# Plan\n\nFirst note\n\n- [ ] one\n- [x] two\n\n## Backlog\n\nlater\n\n# Sub\n\nhello\n");
-  await page.click("#impBtn"); await page.setInputFiles("#impfile", file);
+  await page.click("#gearBtn"); await page.click("#impBtn"); await page.setInputFiles("#impfile", file);
   await page.waitForFunction(() => /2 boards/.test(document.getElementById("impinfo")!.textContent!));
   await page.click("#impgo");
   await page.waitForFunction(() => /Imported/.test(document.getElementById("impinfo")!.textContent!), null, { timeout: 15000 });
@@ -276,7 +276,7 @@ await test("import a real Milanote export: pictures are downloaded, captions, bo
     "[Shelf unit](http://127.0.0.1:3994/one)", "", "Description from the export", "", "A separate note", "", "### **Inside heading**", "",
     "## Checklists", "", "- [ ] a", "- [x] b", "- [ ] Walka z air china- noclegi w Pekinie i jeszcze dużo więcej tekstu żeby zawinąć", "- [ ]", "## Overview", "", "## **Daty**", "", "Table element string placeholder", "", "### **Transport Details**", "", "## Last", "", "in last", "",
   ].join("\n"));
-  await page.click("#impBtn"); await page.setInputFiles("#impfile", file);
+  await page.click("#gearBtn"); await page.click("#impBtn"); await page.setInputFiles("#impfile", file);
   await page.waitForFunction(() => /1 board/.test(document.getElementById("impinfo")!.textContent!));
   await page.click("#impgo");
   await page.waitForFunction(() => /Imported/.test(document.getElementById("impinfo")!.textContent!), null, { timeout: 20000 });
@@ -341,7 +341,7 @@ await test("rich note: bold and a list are saved, shown, and exported to Markdow
   assert.match(s.content.html, /<b>loud<\/b>/); assert.match(s.content.textContent, /plain loud/);
   await page.reload(); await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live"); await settle(page, 500);
   assert.equal(await page.locator(".note .text b").innerText(), "loud", "still formatted after a reload");
-  await page.click("#expBtn");
+  await page.click("#gearBtn"); await page.click("#expBtn");
   const [dl] = await Promise.all([page.waitForEvent("download"), page.click('#expop [data-x="md"]')]);
   const dir = mkdtempSync(join(tmpdir(), "e2e-md-")), file = join(dir, "n.md"); await dl.saveAs(file);
   const md = (await import("node:fs")).readFileSync(file, "utf8");
@@ -388,7 +388,7 @@ await test("table: type with Tab/Enter, add a row and a column, reload, export t
   await page.reload(); await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live"); await settle(page, 500);
   assert.equal(await page.locator(".sheet .cell").count(), 16);
   assert.equal(await page.locator(".sheet tr.head .cell").first().inputValue(), "Item");
-  await page.click("#expBtn");
+  await page.click("#gearBtn"); await page.click("#expBtn");
   const [dl] = await Promise.all([page.waitForEvent("download"), page.click('#expop [data-x="md"]')]);
   const dir = mkdtempSync(join(tmpdir(), "e2e-md-")), file = join(dir, "t.md"); await dl.saveAs(file);
   assert.match((await import("node:fs")).readFileSync(file, "utf8"), /\| Item \| Qty \| Note \|  \|\n\| --- \| --- \| --- \| --- \|\n\|  \|  \| Tea \|  \|/);
@@ -398,7 +398,7 @@ await test("table: type with Tab/Enter, add a row and a column, reload, export t
 await test("table: a Markdown table imports as a table card", async ({ page }) => {
   const dir = mkdtempSync(join(tmpdir(), "e2e-md-")), file = join(dir, "t.md");
   writeFileSync(file, "# Sheet\n\n| a | b |\n| --- | --- |\n| 1 | 2 \\| 3 |\n");
-  await page.click("#impBtn"); await page.setInputFiles("#impfile", file);
+  await page.click("#gearBtn"); await page.click("#impBtn"); await page.setInputFiles("#impfile", file);
   await page.waitForFunction(() => /1 board/.test(document.getElementById("impinfo")!.textContent!));
   await page.click("#impgo");
   await page.waitForFunction(() => /Imported/.test(document.getElementById("impinfo")!.textContent!), null, { timeout: 15000 });
@@ -500,7 +500,7 @@ await test("heading card exports as ### and imports back as a heading; presentat
   await page.click("#heading"); await page.keyboard.type("Big title"); await page.keyboard.press("Escape"); await settle(page, 500);
   assert.equal(await page.locator(".note.heading").count(), 1);
   assert.equal(await page.locator(".note.heading .text").evaluate((e) => parseFloat(getComputedStyle(e).fontSize)) >= 26, true, "set large");
-  await page.click("#expBtn");
+  await page.click("#gearBtn"); await page.click("#expBtn");
   const [dl] = await Promise.all([page.waitForEvent("download"), page.click('#expop [data-x="md"]')]);
   const dir = mkdtempSync(join(tmpdir(), "e2e-h-")), file = join(dir, "h.md"); await dl.saveAs(file);
   assert.match((await import("node:fs")).readFileSync(file, "utf8"), /^### Big title$/m);
@@ -636,7 +636,7 @@ await test("rich note: markdown shortcuts, highlight, quote, code, link, centre,
   assert.match(s.content.html, /<mark>hot take<\/mark>/); assert.doesNotMatch(s.content.html, /style=|<span/);
   await page.reload(); await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live"); await settle(page, 500);
   assert.equal(await page.locator(".note .text mark").innerText(), "hot take", "still formatted after a reload");
-  await page.click("#expBtn");
+  await page.click("#gearBtn"); await page.click("#expBtn");
   const [dl] = await Promise.all([page.waitForEvent("download"), page.click('#expop [data-x="md"]')]);
   const dir = mkdtempSync(join(tmpdir(), "e2e-md-")), file = join(dir, "n.md"); await dl.saveAs(file);
   const md = (await import("node:fs")).readFileSync(file, "utf8");
@@ -686,14 +686,14 @@ await test("image toolbar: download the original, colour strip, rotate (crop and
 await test("import Markdown: ==highlight==, a > quote and a fenced code block become formatted notes, and export writes them back", async ({ page }) => {
   const dir = mkdtempSync(join(tmpdir(), "e2e-md-")), file = join(dir, "fmt.md");
   writeFileSync(file, ["# Fmt", "", "a ==hot== take", "", "> wise words", "", "```", "let x = 1", "```", ""].join("\n"));
-  await page.click("#impBtn"); await page.setInputFiles("#impfile", file);
+  await page.click("#gearBtn"); await page.click("#impBtn"); await page.setInputFiles("#impfile", file);
   await page.waitForFunction(() => /1 board/.test(document.getElementById("impinfo")!.textContent!));
   await page.click("#impgo"); await page.waitForSelector("#impdlg", { state: "hidden" });
   await page.locator("#canvas > .board").dblclick(); await settle(page, 1500);
   assert.equal(await page.locator(".note mark").innerText(), "hot");
   assert.equal(await page.locator(".note blockquote").innerText(), "wise words");
   assert.equal(await page.locator(".note pre").innerText(), "let x = 1");
-  await page.click("#expBtn");
+  await page.click("#gearBtn"); await page.click("#expBtn");
   const [dl] = await Promise.all([page.waitForEvent("download"), page.click('#expop [data-x="md"]')]);
   const out = join(dir, "out.md"); await dl.saveAs(out);
   const md = (await import("node:fs")).readFileSync(out, "utf8");
@@ -744,12 +744,12 @@ await test("note text: colour and size from the format bar are saved and shown; 
   await page.click('#fmt [data-c="colour"]'); await page.click('#fmtPal [data-color="#e5484d"]');
   await page.click('#fmt [data-c="sizeUp"]');
   await page.keyboard.press("Escape"); await settle(page, 900);
-  assert.deepEqual(await look(), ["rgb(229, 72, 77)", "18px"], "red, one size up");
-  const h = (await html())!; assert.match(h, /color:#e5484d/); assert.match(h, /font-size:18px/); assert.match(h, /paint me/);
+  assert.deepEqual(await look(), ["rgb(229, 72, 77)", "15px"], "red, one size up (+1px)");
+  const h = (await html())!; assert.match(h, /color:#e5484d/); assert.match(h, /font-size:15px/); assert.match(h, /paint me/);
   await page.reload(); await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live"); await settle(page, 600);
-  assert.deepEqual(await look(), ["rgb(229, 72, 77)", "18px"], "still coloured after a reload");
+  assert.deepEqual(await look(), ["rgb(229, 72, 77)", "15px"], "still coloured after a reload");
   await page.locator(".note").click(); await page.keyboard.press("Enter"); await page.keyboard.press("Control+a");
-  await page.click('#fmt [data-c="sizeUp"]'); assert.equal((await look())[1], "24px", "A+ again: 24px");
+  await page.click('#fmt [data-c="sizeUp"]'); assert.equal((await look())[1], "16px", "+ again: 16px");
   await page.click('#fmt [data-c="sizeDown"]'); await page.click('#fmt [data-c="sizeDown"]'); assert.equal((await look())[1], "14px", "two A- bring it back to the normal size");
   await page.click('#fmt [data-c="colour"]'); await page.click('#fmtPal [data-color=""]');
   await page.keyboard.press("Escape"); await settle(page, 900);
@@ -852,7 +852,7 @@ await test("theme: Ctrl+Shift+D and the Theme button switch light/dark and the c
   assert.notEqual(second, first, "the shortcut switches it"); assert.notEqual(await bg(), firstBg, "and the colours really change");
   await page.reload(); await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live");
   assert.equal(await theme(), second, "the choice is remembered after a reload");
-  await page.click("#themeBtn");
+  await page.click("#gearBtn"); await page.click("#themeBtn");
   assert.equal(await theme(), first, "the button switches it back");
   assert.equal((await model(page)).filter((e) => e.elementType === "CARD").length, 0, "Ctrl+Shift+D did not duplicate anything");
 });
@@ -890,16 +890,71 @@ await test("link card: hide and show its picture, description and address from t
 });
 
 await test("top-bar popups open under their own button and close on a click elsewhere or Esc", async ({ page }) => {
-  for (const [btn, pop] of [["bgBtn", "bgpop"], ["expBtn", "expop"], ["boardsBtn", "bpanel"]]) {
+  for (const [btn, pop, owner] of [["bgBtn", "bgpop", "gearBtn"], ["expBtn", "expop", "gearBtn"], ["boardsBtn", "bpanel", "boardsBtn"]]) {
+    if (owner === "gearBtn") await page.click("#gearBtn"); // background and export live in the settings menu; their popup opens under the gear
     await page.click("#" + btn);
-    const b = (await page.locator("#" + btn).boundingBox())!, p = (await page.locator("#" + pop).boundingBox())!;
+    const b = (await page.locator("#" + owner).boundingBox())!, p = (await page.locator("#" + pop).boundingBox())!;
     assert.ok(Math.abs(p.x - b.x) < 2 || p.x === 8 || p.x + p.width > 1000, `${pop} sits at its button`);
     assert.ok(p.y >= b.y + b.height && p.y - (b.y + b.height) < 20, `${pop} is just under its button`);
     await page.mouse.click(700, 500); // empty board
     assert.equal(await page.locator("#" + pop).isVisible(), false, `${pop} closes on a click on the board`);
+    if (owner === "gearBtn") await page.click("#gearBtn");
     await page.click("#" + btn); await page.keyboard.press("Escape");
     assert.equal(await page.locator("#" + pop).isVisible(), false, `${pop} closes on Esc`);
   }
+});
+
+await test("left panel: drag a tool onto the board adds it under the pointer; a click still adds; dropping on the panel adds nothing", async ({ page }) => {
+  const from = mid(await box(page, "#heading"));
+  await drag(page, from, { x: 800, y: 450 });
+  await settle(page, 600);
+  const h = (await stored(page)).find((e) => e.content.heading);
+  assert.ok(h, "the dragged heading was created and stored");
+  const hb = await box(page, ".note.heading");
+  within(hb.x + hb.width / 2, 800, 40, "centred on the drop x"); within(hb.y, 450 - 24, 30, "just above the drop y");
+  await page.keyboard.press("Escape");
+  await drag(page, mid(await box(page, "#todo")), mid(await box(page, "#table")));
+  await settle(page, 400);
+  assert.equal(await page.locator(".tasklist, .todo").count(), 0, "dropped back on the panel: nothing added");
+  await page.click("#note"); await page.keyboard.press("Escape"); await settle(page, 400);
+  assert.equal(await page.locator(".note").count(), 2, "a plain click on a tool still adds a card");
+});
+
+await test("opening a board clears the selection and its option panels; a selected card shows a bold resize corner", async ({ page }) => {
+  await add(page, "brd", "Inner"); await settle(page, 400);
+  await page.locator(".board").first().click(); await settle(page, 200);
+  assert.equal(await page.locator("#colorbar").isVisible(), true, "one click: selected, colour options shown");
+  assert.equal(await page.locator("#iconbar").isVisible(), true);
+  await page.locator(".board").first().dblclick(); await page.waitForFunction(() => location.hash.length > 1); await settle(page, 800);
+  for (const bar of ["#colorbar", "#iconbar", "#fmt"]) assert.equal(await page.locator(bar).isVisible(), false, `${bar} is gone inside the new board`);
+  await add(page, "note", "x"); await page.locator(".note").click(); await settle(page, 200);
+  const corner = await page.locator(".note.selected > .grip.se").evaluate((g) => { const a = getComputedStyle(g, "::after"); return [a.borderRightWidth, a.borderBottomWidth]; });
+  assert.deepEqual(corner, ["4px", "4px"], "bold corner on the selected card");
+});
+
+await test("heading can be given a background colour", async ({ page }) => {
+  await add(page, "heading", "Title");
+  assert.notEqual(await page.locator(".note.heading").evaluate((e) => getComputedStyle(e).backgroundColor), "rgb(255, 255, 255)");
+  const bare = await page.locator(".note.heading").evaluate((e) => getComputedStyle(e).backgroundColor);
+  await page.locator(".note.heading").click({ position: { x: 4, y: 4 } });
+  await page.locator("#colorbar .sw[data-val=orange], #colorbar .sw:not(.none):not(.custom)").first().click(); await settle(page, 600);
+  assert.notEqual(await page.locator(".note.heading").evaluate((e) => getComputedStyle(e).backgroundColor), bare, "the heading now has a background");
+});
+
+await test("settings: Present is a full-screen icon at the bottom right; the top bar has no Background/Present/Theme text buttons", async ({ page }) => {
+  const names = await page.locator("#top .btn:visible").allTextContents();
+  assert.ok(!names.some((t) => /Background|Present|Theme|Export|Import/.test(t)), "none of them are in the top bar: " + names.join(","));
+  const g = await box(page, "#gearBtn"); assert.ok(g.x > 1200, "the gear is at the top right");
+  const z = await box(page, "#zoom"), pb = await box(page, "#presentBtn"); assert.ok(pb.x >= z.x && pb.y > 700, "the full-screen icon sits in the bottom-right pill");
+});
+
+await test("text size: type px by hand for the selected text", async ({ page }) => {
+  await page.click("#note"); await page.keyboard.type("big words"); await page.keyboard.press("Control+a");
+  await page.fill("#fsize", "50"); await page.press("#fsize", "Enter"); await settle(page, 700);
+  const px = await page.locator(".note .text span").first().evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
+  assert.equal(px, 50, "50px, past the old 32px maximum");
+  await page.click("#fmt [data-c=sizeUp]"); await settle(page, 300);
+  assert.equal(await page.inputValue("#fsize"), "51", "+ steps by 1px");
 });
 
 await test("phone: one row top bar, nothing wider than the screen, tap targets 40px, one finger pans, two fingers pinch-zoom", async () => {
