@@ -44,6 +44,7 @@ const add = async (page: Page, tool: string, text?: string) => { await page.clic
 
 const results: { name: string; ok: boolean; err?: string }[] = [];
 async function test(name: string, fn: (t: T) => Promise<void>) {
+  if (process.env.ONLY && !name.includes(process.env.ONLY)) return; // ONLY="text size" npm run e2e: just the tests whose name contains it
   const t = await fresh();
   try {
     await fn(t);

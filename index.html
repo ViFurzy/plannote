@@ -942,6 +942,7 @@ function markdownShortcut(root) {
 }
 addEventListener("focusin", (e) => { if (!e.target.closest?.("#fmt")) $("fmt").hidden = !e.target.matches?.(".note .text[contenteditable=true]"); }); // focus inside the bar (the size box) keeps it open
 addEventListener("focusout", (e) => { // the bar stays while focus moves to its own size box, and goes when focus leaves both
+  if (e.target.matches?.(".note .text")) { const s = getSelection(); if (s.rangeCount && e.target.contains(s.anchorNode)) keptRange = s.getRangeAt(0).cloneRange(); } // still the note's selection here; selectionchange may not have reported the latest one yet
   if (!e.target.matches?.(".note .text, #fsize") || e.relatedTarget?.closest?.("#fmt, .note .text[contenteditable=true]")) return;
   $("fmt").hidden = $("fmtPal").hidden = true;
   if (e.target.id === "fsize") noteText()?.onblur?.(); // the size box was the last thing focused: close the note it was keeping open
