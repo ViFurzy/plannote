@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { deflateSync } from "node:zlib";
 import { createServer } from "./server.ts";
 
+const ZOOM = 0.76; // the zoom a board opens at (shown as 100%)
 const PORT = 3997, URL = `http://localhost:${PORT}`;
 const srv = createServer(PORT, ":memory:", { allowPrivateUnfurl: true }); // so link previews can be tested against a local page
 const pages = (await import("node:http")).createServer((req, res) => {
@@ -74,7 +75,7 @@ await test("drag a note with the mouse; a second tab of the same user sees it mo
   const moved = await box(page, ".note"), there = await box(other, ".note");
   within(moved.x, start.x + 240, 4, "x on this tab"); within(there.x, moved.x, 2, "x on the other tab"); within(there.y, moved.y, 2, "y on the other tab");
   const s = (await stored(page)).find((e) => e.elementType === "CARD");
-  within(s.location.position.x, start.x + 240, 4, "x stored on the server (the view is not panned: screen x is board x)");
+  within(s.location.position.x, (start.x + 240) / ZOOM, 4, "x stored on the server (the view is not panned: board x is screen x over the zoom)");
 });
 
 await test("column: drop a note in, drag it back out", async ({ page }) => {
@@ -119,17 +120,17 @@ await test("zoom: one wheel notch is one 15% step whatever the wheel reports; pi
   await add(page, "note", "zoom"); await page.mouse.move(700, 400);
   const z = () => page.evaluate(() => (window as any).__view().z);
   const wheel = async (dy: number) => { await page.keyboard.down("Control"); await page.mouse.wheel(0, dy); await page.keyboard.up("Control"); await settle(page, 150); };
-  within(await z(), 1, 0, "starts at 100%");
+  within(await z(), 0.76, 0, "starts at 100% (which is 76% of natural size)"); const dots = () => page.evaluate(() => !document.body.classList.contains("nodots")); assert.equal(await dots(), true, "dots at 100%");
   for (const dy of [-100, -120, -53, -400]) { const before = await z(); await wheel(dy); within((await z()) / before, 1.15, 0.002, `a notch of ${dy} is one step`); }
   for (let i = 0; i < 4; i++) await wheel(100);
-  assert.equal(await z(), 1, "four steps in and four out come back to exactly 100%");
-  await wheel(100); within(await z(), 1 / 1.15, 0.002, "a notch out is a step out");
+  assert.equal(await z(), 0.76, "four steps in and four out come back to exactly 100%");
+  await wheel(100); within(await z(), 0.76 / 1.15, 0.002, "a notch out is a step out"); assert.equal(await dots(), false, "no dots below 100%");
   await wheel(100); await wheel(-100); await wheel(-100);
   const before = await z(); await wheel(-5);
   const ratio = (await z()) / before; assert.ok(ratio > 1.03 && ratio < 1.07, `a small pinch-like delta zooms a little, not a whole step (x${ratio.toFixed(3)})`);
   for (let i = 0; i < 20; i++) await wheel(-100);
-  assert.equal(await z(), 2, "zoom stops at 200%");
-  await page.click("#zreset"); await page.click("#zin"); within(await z(), 1.15, 0.001, "the + button uses the same step");
+  assert.equal(await z(), 1.52, "zoom stops at 200%");
+  await page.click("#zreset"); await page.click("#zin"); within(await z(), 0.76 * 1.15, 0.001, "the + button uses the same step");
 });
 
 await test("zoom with ctrl+wheel and pan with the wheel; the view is remembered after a reload", async ({ page }) => {
@@ -138,7 +139,7 @@ await test("zoom with ctrl+wheel and pan with the wheel; the view is remembered 
   await page.keyboard.down("Control"); await page.mouse.wheel(0, -200); await page.keyboard.up("Control");
   await settle(page, 300);
   const z = await page.evaluate(() => (window as any).__view().z);
-  within(z, 1.15, 0.001, "one wheel notch (even a big one, -200) is exactly one 15% step");
+  within(z, 0.76 * 1.15, 0.001, "one wheel notch (even a big one, -200) is exactly one 15% step");
   const y0 = await page.evaluate(() => (window as any).__view().y);
   await page.mouse.wheel(0, 120); await settle(page, 300);
   within(y0 - (await page.evaluate(() => (window as any).__view().y)), 120, 2, "panned by the wheel delta");
@@ -160,7 +161,7 @@ await test("resize a note by its edge handles: width, height, and the server kee
   await settle(page, 800);
   within((await box(page, ".note")).height, h0 + 110, 4, "taller");
   const saved = (await stored(page)).find((x) => x.elementType === "CARD");
-  within(saved.content.width, w0 + 90, 4, "width saved"); assert.ok(saved.content.height > h0 + 80, "height saved");
+  within(saved.content.width, (w0 + 90) / ZOOM, 4, "width saved"); assert.ok(saved.content.height > h0 + 80, "height saved");
 });
 
 await test("draw with the pen: every stroke saves by itself, Esc stops, undo removes the last", async ({ page }) => {
@@ -602,7 +603,7 @@ await test("keyboard: Alt-drag copies a card, the original stays", async ({ page
   await page.keyboard.down("Alt"); await drag(page, from, { x: from.x + 260, y: from.y + 120 }); await page.keyboard.up("Alt"); await settle(page, 1000);
   const ps = await posOf(page);
   assert.equal(ps.length, 2, "an original and a copy");
-  within(ps[1].x - ps[0].x, 260, 6, "the copy lands where it was dropped"); within(ps[1].y - ps[0].y, 120, 6, "...and down");
+  within(ps[1].x - ps[0].x, 260 / ZOOM, 6, "the copy lands where it was dropped"); within(ps[1].y - ps[0].y, 120 / ZOOM, 6, "...and down");
   assert.deepEqual((await model(page)).filter((e) => e.elementType === "CARD").map((e) => e.content.textContent), ["orig", "orig"]);
   await page.keyboard.press("Control+z"); await settle(page, 700);
   assert.equal((await posOf(page)).length, 1, "undo removes the copy");
