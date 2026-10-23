@@ -2,7 +2,7 @@
 // Run with `npm run e2e`. Each test gets a fresh user, so it starts on an empty home board.
 import { chromium, type Page, type BrowserContext } from "playwright-core";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deflateSync } from "node:zlib";
@@ -1056,6 +1056,32 @@ await test("big board: 900 cards and 99 lines open quickly, dragging them stays 
   assert.ok(load < 6000, `loads in under 6s (${load} ms)`); assert.ok(dragMs < 3000, `the drag takes under 3s (${dragMs} ms)`); assert.ok(selMs < 1500, `select all takes under 1.5s (${selMs} ms)`);
 });
 
+await test("export: every format in the menu downloads a real file of that type (PDF, PNG, Word, ZIP, Markdown, text, board file)", async ({ page }) => {
+  await add(page, "note", "export me"); await add(page, "todo", "Tasks");
+  // PDF opens the browser's print dialog (Save as PDF), so it has no file to check; "Word document" is an HTML page saved as .doc, which Word opens
+  for (const fmt of ["pdf", "pdfhq"]) {
+    await page.click("#gearBtn"); await page.click("#expBtn"); await page.click(`#expop [data-x="${fmt}"]`);
+    await page.waitForFunction(() => /Choose Save as PDF|failed/.test(document.getElementById("exmsg")!.textContent!), null, { timeout: 15000 });
+    assert.match(await page.locator("#exmsg").innerText(), /Choose Save as PDF/, `${fmt}: reaches the print dialog without an error`);
+    await page.keyboard.press("Escape"); await settle(page, 200);
+  }
+  const magic: Record<string, (b: Buffer) => boolean> = {
+    png: (b) => b.subarray(1, 4).toString() === "PNG", docx: (b) => /<html/i.test(b.toString()) && b.toString().includes("export me"),
+    md: (b) => b.toString().includes("export me"), txt: (b) => b.toString().includes("export me"), json: (b) => JSON.parse(b.toString()) !== null,
+  };
+  const dir = mkdtempSync(join(tmpdir(), "e2e-exp-"));
+  for (const [fmt, ok] of Object.entries(magic)) {
+    await page.click("#gearBtn"); await page.click("#expBtn");
+    const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), page.click(`#expop [data-x="${fmt}"]`)]).catch((e) => { throw new Error(`${fmt}: no download (${String(e.message).split("\n")[0]})`); });
+    const file = join(dir, "out-" + fmt); await dl.saveAs(file);
+    const bytes = readFileSync(file); assert.ok(bytes.length > 5, `${fmt}: the file has content (${bytes.length} bytes)`); assert.ok(ok(bytes), `${fmt}: it really is one (${dl.suggestedFilename()})`);
+    await page.keyboard.press("Escape"); await settle(page, 200);
+  }
+  rmSync(dir, { recursive: true });
+  await page.click("#gearBtn"); await page.click("#expBtn");
+  assert.equal(await page.locator("#exZip").isDisabled(), true, "the images ZIP is off while the board has no pictures");
+});
+
 await test("board icons: a fitting icon for the board's name (English or Polish), search by name or category in both languages, a chosen icon sticks", async ({ page }) => {
   const iconOf = (title: string) => page.evaluate((t) => (Object.values((window as any).__els()) as any[]).find((e) => e.content.title === t)?.content, title);
   const words = (name: string) => page.evaluate((n) => (0, eval)("ICON_INDEX").find((i: any) => i.name === n).words.join(" "), name);
@@ -1081,6 +1107,35 @@ await test("board icons: a fitting icon for the board's name (English or Polish)
   c = await iconOf("Kitchen"); assert.equal(c.icon, "rocket"); assert.ok(!c.iconAuto, "a chosen icon is no longer automatic");
   assert.equal(await page.locator("#iconpick").isVisible(), false, "the picker closes after a choice");
   await page.locator(".board", { hasText: "Kitchen" }).locator(".tile svg").waitFor();
+});
+
+await test("clicking the zoom percentage (or Ctrl+0) goes back to 100% with the board centred, not to the top left", async ({ page }) => {
+  await add(page, "note", "centre me");
+  await page.mouse.move(700, 400); await page.mouse.wheel(300, 250); await settle(page, 300); // pan it away
+  await page.click("#zreset"); await settle(page, 300);
+  const c = mid(await box(page, ".note")), z = await page.evaluate(() => (window as any).__view().z);
+  within(c.x, (96 + 1400 - 24) / 2, 30, "centred sideways in the free area"); within(c.y, (70 + 900 - 24) / 2, 30, "centred up and down"); assert.equal(z, 0.76, "at 100%");
+  await page.mouse.wheel(-200, -200); await settle(page, 200); await page.keyboard.press("Control+0"); await settle(page, 300);
+  within(mid(await box(page, ".note")).x, (96 + 1400 - 24) / 2, 30, "Ctrl+0 centres too");
+});
+
+await test("icon picker: every category is reachable and the list scrolls, with a mouse wheel and at phone width", async ({ page, ctx }) => {
+  const inside = (p: Page) => p.evaluate(() => { const pk = document.getElementById("iconpick")!.getBoundingClientRect(); return [...document.querySelectorAll<HTMLElement>("#icongroups button")].every((b) => { const r = b.getBoundingClientRect(); return r.left >= pk.left - 1 && r.right <= pk.right + 1; }); });
+  const open = async (p: Page) => { await add(p, "brd", "Test"); await p.locator(".board").first().click(); await p.click("#iconBtn"); await p.waitForSelector("#iconpick:not([hidden])"); };
+  await open(page);
+  assert.equal(await inside(page), true, "desktop: no category is cut off at the side");
+  const v0 = await page.evaluate(() => (window as any).__view());
+  const g = await box(page, "#icongrid"); await page.mouse.move(g.x + 60, g.y + 60); await page.mouse.wheel(0, 400); await settle(page, 300);
+  assert.ok((await page.evaluate(() => document.getElementById("icongrid")!.scrollTop)) > 50, "the icon list scrolls with the wheel");
+  assert.deepEqual(await page.evaluate(() => (window as any).__view()), v0, "and the board behind it does not move");
+  const phone = await browser.newContext({ viewport: { width: 393, height: 852 }, hasTouch: true, isMobile: true });
+  const p = await phone.newPage(); p.setDefaultTimeout(8000); await p.goto(`${URL}/?u=ph${Date.now().toString(36)}`);
+  await p.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live");
+  await open(p);
+  assert.equal(await inside(p), true, "phone: no category is cut off at the side");
+  const r = await p.evaluate(() => { const pk = document.getElementById("iconpick")!.getBoundingClientRect(); return { l: pk.left, r: pk.right, b: pk.bottom, w: innerWidth, h: innerHeight, wide: document.documentElement.scrollWidth }; });
+  assert.ok(r.l >= 0 && r.r <= r.w && r.b <= r.h, `the picker fits the phone screen (${JSON.stringify(r)})`); assert.equal(r.wide, r.w, "nothing makes the page wider");
+  await phone.close();
 });
 
 await test("a board opened for the first time is centred on the screen, not left at the top left", async ({ page, user }) => {

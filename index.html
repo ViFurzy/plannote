@@ -324,9 +324,10 @@
   #iconpick input { font: inherit; font-size: 16px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); min-width: 0; user-select: text; -webkit-user-select: text; }
   #iconpick .prow { display: flex; justify-content: flex-end; } #iconpick .prow .btn { width: auto; height: auto; padding: 5px 16px; }
   #iconsug { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; } #iconsug[hidden] { display: none; } #iconsug .lab { flex: none; } #iconsugs { display: flex; gap: 2px; flex-wrap: wrap; flex: 1; }
-  #icongroups { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; touch-action: pan-x; }
+  #icongroups { display: flex; flex-wrap: wrap; gap: 4px; max-height: 96px; overflow-y: auto; touch-action: pan-y; } /* the categories wrap onto more rows: nothing is hidden at the side, on a phone or a wide screen */
   #icongroups button { flex: none; font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: none; color: var(--ink); cursor: pointer; white-space: nowrap; }
   #icongroups button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  @media (max-width: 640px) { #iconsug .lab { flex-basis: 100%; } } /* a phone: the label gets its own line, the suggestions sit under it */
   #icongrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 4px; align-content: start; overflow: auto; min-height: 0; touch-action: pan-y; }
   #icongrid .none { grid-column: 1 / -1; color: var(--muted); padding: 12px 4px; }
   #iconpick .ib { width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 8px; background: none; color: var(--ink); cursor: pointer; }
@@ -739,17 +740,17 @@ function loadView(id) {
   return { x: 0, y: 0, z: ZOOM_100 };
 }
 let freshView = false;
-// fit every card on the board into the visible area (clear of the toolbar and top bar), zoomed in no further than maxZ
-function fit(maxZ = 1.5) {
+// fit every card on the board into the visible area (clear of the toolbar and top bar), zoomed in no further than maxZ (exactly maxZ with `exact`, even if that crops)
+function fit(maxZ = 1.5, exact = false) {
   const cards = topCards();
-  if (!cards.length) return resetView();
+  const phone = innerWidth <= 640, pad = 40, left = phone ? 16 : 96, top = 70, w = innerWidth - left - 24, h = innerHeight - top - (phone ? 90 : 24); // on a phone the tools run along the bottom
+  if (!cards.length) { view = { z: maxZ, x: left + w / 2, y: top + h / 2 }; return applyView(); }
   let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
   for (const c of cards) {
     const k = (c.classList.contains("line") ? c.querySelector("svg") : c).getBoundingClientRect(), a = toBoard(k.left, k.top), z = toBoard(k.right, k.bottom);
     l = Math.min(l, a.x); t = Math.min(t, a.y); r = Math.max(r, z.x); b = Math.max(b, z.y);
   }
-  const phone = innerWidth <= 640, pad = 40, left = phone ? 16 : 96, top = 70, w = innerWidth - left - 24, h = innerHeight - top - (phone ? 90 : 24); // on a phone the tools run along the bottom
-  const z = clamp(Math.min(w / (r - l + 2 * pad), h / (b - t + 2 * pad)), 0.25, maxZ);
+  const z = exact ? maxZ : clamp(Math.min(w / (r - l + 2 * pad), h / (b - t + 2 * pad)), 0.25, maxZ);
   view = { z, x: left + (w - (r - l) * z) / 2 - l * z, y: top + (h - (b - t) * z) / 2 - t * z };
   applyView();
 }
@@ -762,13 +763,14 @@ function zoomAt(factor, cx = innerWidth / 2, cy = innerHeight / 2) {
   view.y = cy - (cy - view.y) * (z / view.z);
   view.z = z; applyView();
 }
-const resetView = () => { view = { x: 0, y: 0, z: ZOOM_100 }; applyView(); };
+const resetView = () => fit(ZOOM_100, true); // back to 100%, with what is on the board centred (an empty board: its origin in the middle)
 $("zin").onclick = () => zoomAt(ZOOM_STEP);
 $("zout").onclick = () => zoomAt(1 / ZOOM_STEP);
 $("zreset").onclick = resetView;
 addEventListener("wheel", (e) => {
   const msgs = e.target.closest?.(".msgs");
-  if (e.target.closest?.("#trash") || (msgs && msgs.scrollHeight > msgs.clientHeight)) return; // let the Trash list and long comment threads scroll
+  if (msgs && msgs.scrollHeight > msgs.clientHeight) return; // long comment threads scroll
+  if (!(e.ctrlKey || e.metaKey) && e.target.closest?.("#trash, #bpanel, #outline, #iconpick, #expop, #setpop, #bgpop, #impdlg, #sharedlg")) return; // panels and lists scroll with the wheel; the board behind them must not move (Ctrl+wheel still zooms the board)
   e.preventDefault();
   if (e.ctrlKey || e.metaKey) {
     // A mouse wheel reports about 100 or more per notch (it depends on the device and its settings), so a notch is ONE fixed step. A trackpad pinch also arrives
