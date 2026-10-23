@@ -1434,6 +1434,7 @@ let lastTap = null; // the previous touch tap on a card, for double-tap
 let spaceDown = false, tool = null; // tool: "line" | "draw" while one of those is active
 const noNest = (g) => g.classList.contains("column") || g.classList.contains("line"); // these stay on the canvas
 
+const inputKind = (e) => (e.pointerType === "pen" ? "pen" : e.pointerType === "touch" ? "touch" : "mouse"); // fingers pan and rest-to-drag, a Pencil or mouse is precise
 function wire(d) {
   let timer, drag, resize, handle, pending = false, taskTimer, taskPending = false, holdTimer;
   const el = () => els[d.id], t = editor(d), type = () => el().elementType;
@@ -1453,7 +1454,7 @@ function wire(d) {
     if (e.target.classList.contains("h")) { handle = { which: e.target.classList.contains("h1") ? 1 : 2 }; return; } // a line's endpoint
     const mod = e.shiftKey || e.ctrlKey || e.metaKey, was = sel.has(d.id);
     if (!was) setSel(mod ? [...sel, d.id] : [d.id]);
-    drag = { sx: e.clientX, sy: e.clientY, moved: false, mod, was, alt: e.altKey, tg: e.target, touch: e.pointerType !== "mouse" }; // Alt held at the start: the drop makes a copy
+    drag = { sx: e.clientX, sy: e.clientY, moved: false, mod, was, alt: e.altKey, tg: e.target, touch: inputKind(e) === "touch" }; // Alt held at the start: the drop makes a copy. Only a finger has to rest before it drags; a Pencil, like a mouse, drags at once
     if (drag.touch) { // a finger must rest on the card for a moment to drag it; moving at once pans the board, so a crowded board can still be moved around
       clearTimeout(holdTimer);
       holdTimer = setTimeout(() => { if (drag) { drag.held = true; d.classList.add("held"); navigator.vibrate?.(15); } }, 350);
@@ -1517,6 +1518,7 @@ function wire(d) {
     mark(over ? null : okTarget(targetUnder(e.clientX, e.clientY, gs), gs));
   };
 
+  d.onpointercancel = (e) => d.onpointerup(e); // a system gesture took the pointer: finish the drag where it is instead of leaving it half done
   d.onpointerup = (e) => {
     clearTimeout(holdTimer); d.classList.remove("held");
     if (handle) {
@@ -1756,6 +1758,8 @@ function wire(d) {
 
 // --- document-level input: panning, marquee selection, keyboard ---------------------------------
 addEventListener("pointerdown", (e) => {
+  if (e.pointerType === "touch") lastTouch = Date.now();
+  if (e.pointerType === "pen") fingers.clear(); // the Pencil is down: a resting hand's touches are not a gesture
   if (!$("picker").hidden && !e.target.closest("#picker, .sw.custom")) closePicker(); // a click anywhere else dismisses the picker
   if (e.target.closest("#tools, #top, #trash, #zoom, #drawbar, #ctx, #bgpop, #picker, #iconpick, #outline, #bpanel")) return;
   if (e.button === 1 || (spaceDown && e.button === 0)) { e.preventDefault(); return startPan(e); }
@@ -1769,11 +1773,15 @@ const fingers = new Map();
 function startTouchView(e) {
   fingers.set(e.pointerId, [e.clientX, e.clientY]);
   if (fingers.size > 1) return; // the second finger is picked up by the handlers the first one installed
-  let moved = false, pinched = false, samples = []; // samples: where the finger was over the last moments, for the toss
+  let moved = false, pinched = false, samples = [], travel = 0, maxFingers = 1; // samples: where the finger was over the last moments, for the toss
+  const t0 = performance.now(), stop = () => { clearTimeout(holdT); fingers.clear(); removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", up); };
+  const holdT = setTimeout(() => { if (!moved && fingers.size === 1) { stop(); navigator.vibrate?.(15); startMarquee({ clientX: e.clientX, clientY: e.clientY }); } }, 350); // resting on the empty board, then dragging, selects (a quick drag pans)
   const move = (m) => {
     const old = fingers.get(m.pointerId); if (!old) return;
+    if (!moved && fingers.size === 1 && Math.hypot(m.clientX - e.clientX, m.clientY - e.clientY) < 6) return; // a resting finger wobbles a little: not a pan yet
+    clearTimeout(holdT);
     const before = [...fingers.values()]; fingers.set(m.pointerId, [m.clientX, m.clientY]);
-    const now = [...fingers.values()]; moved = true;
+    const now = [...fingers.values()]; moved = true; travel += Math.hypot(m.clientX - old[0], m.clientY - old[1]);
     if (now.length > 1) pinched = true; else samples.push({ t: performance.now(), x: m.clientX, y: m.clientY });
     const mid = (f) => [(f[0][0] + f[f.length - 1][0]) / 2, (f[0][1] + f[f.length - 1][1]) / 2];
     const [bx, by] = mid(before), [nx, ny] = mid(now);
@@ -1785,10 +1793,19 @@ function startTouchView(e) {
     applyView();
   };
   const up = (u) => {
+    maxFingers = Math.max(maxFingers, fingers.size);
     fingers.delete(u.pointerId);
     if (fingers.size) return;
-    removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", up);
-    if (!moved) return setSel([]);
+    stop();
+    const quick = performance.now() - t0 < 300;
+    if (u.type === "pointerup" && maxFingers === 2 && quick && travel < 12) return void undo(); // a two-finger tap is undo (iPadOS keeps its three-finger gestures for itself)
+    if (!moved) { // a tap on the empty board clears the selection; a second tap close by makes a note there
+      setSel([]);
+      const now = Date.now(), prev = lastEmptyTap;
+      if (u.type === "pointerup" && prev && now - prev.t < 400 && Math.hypot(u.clientX - prev.x, u.clientY - prev.y) < 30) { lastEmptyTap = null; return void add("CARD", { textContent: "" }, toBoardPoint(u.clientX, u.clientY)); }
+      lastEmptyTap = { t: now, x: u.clientX, y: u.clientY };
+      return;
+    }
     const now = performance.now(), recent = samples.filter((s) => now - s.t < 100); // a finger that stopped before lifting leaves no toss
     if (u.type === "pointerup" && !pinched && recent.length > 1) {
       const a = recent[0], b = recent[recent.length - 1], dt = Math.max(b.t - a.t, 1), cap = (v) => clamp(v, -5, 5);
@@ -1797,6 +1814,8 @@ function startTouchView(e) {
   };
   addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", up);
 }
+let lastEmptyTap = null, lastTouch = 0; // the previous tap on the empty board (for double-tap), and when a finger last touched the page
+const toBoardPoint = (cx, cy) => { const q = toBoard(cx, cy); return { x: Math.round(q.x), y: Math.round(q.y) }; };
 // tossing the board: it keeps moving with the speed the finger had and slows down smoothly (a bit over a second); any touch stops it
 let glideId = 0;
 addEventListener("pointerdown", () => cancelAnimationFrame(glideId), true);
@@ -1883,7 +1902,18 @@ addEventListener("keydown", (e) => {
     if (!$("picker").hidden) closePicker(); else if (tool) setTool(null); else setSel([]);
   }
   else if (sel.size && (e.key === "Delete" || e.key === "Backspace")) { e.preventDefault(); trashIds([...sel]); }
+  else if (mod && e.key === "Enter" && sel.size === 1) { // another card of the same kind (note, board, column) next to the selected one
+    e.preventDefault();
+    const el = els[[...sel][0]], make = NEW_CARDS.find((c) => c[1] === el?.elementType), d = el && $(el.id);
+    if (make && d) { const r = d.getBoundingClientRect(); add(make[1], typeof make[2] === "function" ? make[2]() : structuredClone(make[2]), toBoardPoint(r.right + 24 * view.z, r.top)); }
+  }
   else if (sel.size === 1 && (e.key === "Enter" || e.key === "F2")) { e.preventDefault(); $([...sel][0])?.startEdit(); }
+});
+// double-click on the empty board: a new note right there (the same as a double-tap on touch)
+addEventListener("dblclick", (e) => {
+  if (tool || document.body.classList.contains("presenting") || Date.now() - lastTouch < 900) return; // a touch double-tap is handled by startTouchView; the browser's dblclick after it must not add a second note
+  const t = e.target;
+  if (t === document.body || t === document.documentElement || (t.closest?.("#canvas") && !t.closest(".card"))) add("CARD", { textContent: "" }, toBoardPoint(e.clientX, e.clientY));
 });
 addEventListener("keyup", (e) => { if (e.key === " ") { spaceDown = false; document.body.classList.remove("pan"); } });
 

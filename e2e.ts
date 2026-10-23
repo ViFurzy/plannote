@@ -1109,6 +1109,48 @@ await test("board icons: a fitting icon for the board's name (English or Polish)
   await page.locator(".board", { hasText: "Kitchen" }).locator(".tile svg").waitFor();
 });
 
+await test("double-click on the empty board makes a note there; Ctrl+Enter adds another next to the selected one", async ({ page }) => {
+  await page.mouse.dblclick(700, 400); await settle(page, 500); await page.keyboard.type("first"); await page.keyboard.press("Escape"); await settle(page, 400);
+  assert.equal(await page.locator(".note").count(), 1, "a note appeared");
+  const a = await box(page, ".note"); within(a.x, 700, 40, "at the pointer"); within(a.y, 400, 40, "at the pointer");
+  await page.locator(".note").first().click(); await page.keyboard.press("Control+Enter"); await settle(page, 500); await page.keyboard.type("second"); await page.keyboard.press("Escape"); await settle(page, 400);
+  assert.equal(await page.locator(".note").count(), 2, "Ctrl+Enter added a second note");
+  const [p, q] = await page.locator(".note").evaluateAll((n) => n.map((e) => e.getBoundingClientRect().left)); assert.ok(Math.abs(q - p) > 150, "next to the first, not on top of it");
+});
+
+for (const [w, h, name] of [[393, 852, "phone"], [834, 1194, "iPad portrait"]] as const) {
+  await test(`touch (${name}): double-tap makes a note, a two-finger tap undoes it, rest-then-drag on the empty board selects, a Pencil drags a card at once`, async () => {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: true, isMobile: name === "phone", deviceScaleFactor: 2 });
+    const page = await ctx.newPage(); page.setDefaultTimeout(8000); await page.goto(`${URL}/?u=gest${Date.now().toString(36)}`);
+    await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live");
+    const cdp = await ctx.newCDPSession(page), touch = (type: string, pts: any[]) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: pts });
+    const tap = async (x: number, y: number) => { await touch("touchStart", [{ x, y, id: 1 }]); await touch("touchEnd", []); };
+    const notes = () => page.locator(".note").count();
+    await tap(w / 2, h / 2); await page.waitForTimeout(120); await tap(w / 2, h / 2); await settle(page, 600); await page.keyboard.press("Escape"); await settle(page, 300);
+    assert.equal(await notes(), 1, "double-tap on the empty board made a note");
+    await page.keyboard.type("x").catch(() => {});
+    // two-finger tap = undo
+    await touch("touchStart", [{ x: 100, y: h - 200, id: 1 }, { x: 180, y: h - 200, id: 2 }]); await page.waitForTimeout(60); await touch("touchEnd", []); await settle(page, 600);
+    assert.equal(await notes(), 0, "a two-finger tap undid it");
+    // rest then drag selects: two notes, then a press-and-hold on empty space and a drag across them
+    await page.evaluate(async (w) => { const send = (0, eval)("send"), B = (0, eval)("B"); for (const [i, x] of [100, 330].entries()) await send({ type: "ELEMENT_CREATE", id: "g" + w + "-" + i, elementType: "CARD", location: { parentId: B, section: "CANVAS", position: { score: i + 1, x, y: 160 } }, content: { textContent: "n" + i }, meta: { versionId: "v1", modifiedTime: 1 } }); }, w);
+    await page.reload(); await page.waitForFunction(() => document.querySelectorAll(".note").length === 2); await settle(page, 400);
+    const r = await page.evaluate(() => [...document.querySelectorAll(".note")].map((n) => n.getBoundingClientRect().toJSON())), top = Math.min(...r.map((b: any) => b.top)), bot = Math.max(...r.map((b: any) => b.bottom)), left = Math.min(...r.map((b: any) => b.left)), right = Math.max(...r.map((b: any) => b.right));
+    const sx = Math.max(8, left - 20), sy = top - 30; await touch("touchStart", [{ x: sx, y: sy, id: 1 }]); await page.waitForTimeout(500);
+    for (let i = 1; i <= 8; i++) { await touch("touchMove", [{ x: sx + ((right + 20 - sx) * i) / 8, y: sy + ((bot + 20 - sy) * i) / 8, id: 1 }]); await page.waitForTimeout(16); }
+    await touch("touchEnd", []); await settle(page, 300);
+    assert.equal(await page.locator(".note.selected").count(), 2, "rest-then-drag selected both notes (no panning)");
+    // the Pencil drags a card at once; the page does not pan
+    const c = mid(await box(page, ".note")), v0 = await page.evaluate(() => (window as any).__view()), p0 = await page.evaluate(() => (Object.values((window as any).__els()) as any[]).find((e) => e.content.textContent === "n0").location.position.x);
+    await page.mouse.click(w - 20, h - 20); // clear the selection first
+    const pen = (type: string, x: number, y: number) => cdp.send("Input.dispatchMouseEvent", { type, x, y, button: "left", buttons: type === "mouseReleased" ? 0 : 1, clickCount: 1, pointerType: "pen" });
+    await pen("mouseMoved", c.x, c.y); await pen("mousePressed", c.x, c.y); for (let i = 1; i <= 6; i++) await pen("mouseMoved", c.x, c.y + i * 12); await pen("mouseReleased", c.x, c.y + 72); await settle(page, 700);
+    const p1 = await page.evaluate(() => (Object.values((window as any).__els()) as any[]).find((e) => e.content.textContent === "n0").location.position);
+    assert.ok(p1.y > 160 + 40, `the Pencil moved the card at once (y ${p1.y})`); assert.deepEqual(await page.evaluate(() => (window as any).__view()), v0, "and the board did not pan");
+    await ctx.close();
+  });
+}
+
 await test("clicking the zoom percentage (or Ctrl+0) goes back to 100% with the board centred, not to the top left", async ({ page }) => {
   await add(page, "note", "centre me");
   await page.mouse.move(700, 400); await page.mouse.wheel(300, 250); await settle(page, 300); // pan it away
