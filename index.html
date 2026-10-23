@@ -567,7 +567,7 @@
 <script src="/socket.io/socket.io.js"></script>
 <script>
 const sid = Math.random().toString(36).slice(2, 8);
-let HOME, B = "", joined = null, n = 0, els = {}; // HOME = this user's root board, from app-init
+let HOME, B = "", joined = null, n = 0, els = {}, loading = false; // HOME = this user's root board, from app-init
 // the server puts the logged-in name in window.ACCOUNT; without accounts (tests, local use) identity is a self-declared id (?u=name, else a random one kept in localStorage)
 const uid = window.ACCOUNT ?? new URLSearchParams(location.search).get("u") ?? (localStorage.uid ??= "u" + Math.random().toString(36).slice(2, 8));
 const s = io({ transports: ["websocket"], auth: { userId: uid } });
@@ -748,8 +748,8 @@ addEventListener("wheel", (e) => {
 // --- selection ----------------------------------------------------------------------------------
 let sel = new Set();
 function setSel(ids) {
-  sel = new Set(ids);
-  document.querySelectorAll(".card").forEach((c) => c.classList.toggle("selected", sel.has(c.id)));
+  const before = sel; sel = new Set(ids);
+  for (const id of new Set([...before, ...sel])) $(id)?.classList.toggle("selected", sel.has(id)); // only the cards whose state changes, not every card on the board
   syncBars();
 }
 // a selected column already carries its cards: drop any selected id whose parent is also selected
@@ -1239,7 +1239,7 @@ function render(el) {
   }
   // last, once the card has its final size: option bars, lines attached to this card, search matches
   if (sel.has(el.id)) syncBars();
-  if (type !== "LINE") relayout(el.id);
+  if (type !== "LINE" && !loading) relayout(el.id); // while a board loads, load() lays the lines out once at the end
   if (document.body.classList.contains("searching")) { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 200); } // keep matches current while others edit
 }
 
@@ -1410,6 +1410,8 @@ function wire(d) {
         return { g, x: p.x, y: p.y, w: r.width / view.z };
       });
       if (!drag.group.length) { drag = null; return; }
+      const ids = new Set(drag.group.map((it) => it.g.id)); // the lines that follow the cards, found once instead of on every move
+      drag.lines = Object.values(els).filter((e) => attached(e) && (ids.has(e.content.from) || ids.has(e.content.to)));
       for (const it of drag.group) {
         $("canvas").append(it.g);
         it.g.classList.add("dragging");
@@ -1419,7 +1421,9 @@ function wire(d) {
     }
     const dx = (e.clientX - drag.sx) / view.z, dy = (e.clientY - drag.sy) / view.z;
     for (const it of drag.group) { it.g.style.left = it.x + dx + "px"; it.g.style.top = it.y + dy + "px"; }
-    drag.group.forEach((it) => relayout(it.g.id)); // attached lines follow while you drag
+    drag.lines.forEach((l) => layoutLine(l)); // attached lines follow while you drag
+    if (drag.probe && Math.hypot(e.clientX - drag.probe.x, e.clientY - drag.probe.y) < 4) return; // what is under the pointer only matters once it has really moved
+    drag.probe = { x: e.clientX, y: e.clientY };
     const over = overTrash(e.clientX, e.clientY);
     $("trashBtn").classList.toggle("drop", over);
     const gs = drag.group.map((it) => it.g);
@@ -2409,7 +2413,8 @@ async function load() {
   const cols = Object.values(elements).filter((e) => e.elementType === "COLUMN" && e.location.parentId === B).map((e) => e.id);
   if (cols.length) Object.assign(elements, await fetchBoards(cols)); // column children live under the column's id
   els = elements;
-  Object.values(els).sort((a, b) => (b.elementType === "COLUMN") - (a.elementType === "COLUMN")).forEach(render); // columns first
+  loading = true;
+  try { Object.values(els).sort((a, b) => (b.elementType === "COLUMN") - (a.elementType === "COLUMN")).forEach(render); } finally { loading = false; } // columns first
   document.querySelectorAll(".card").forEach((d) => !els[d.id] && d.remove());
   relayout(); // lines can render before the cards they attach to
   applyBg();

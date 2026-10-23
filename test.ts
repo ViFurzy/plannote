@@ -340,6 +340,9 @@ console.log("ok: home boards, no squatting, acl grant/revoke, READ/WRITE/ADMIN, 
 
   assert.equal((await fetch(base + "/")).headers.get("content-type"), "text/html");
   assert.match(await (await fetch(base + "/")).text(), /<form id="f">/, "no session: the login page");
+  const page1 = await fetch(base + "/", { headers: { "accept-encoding": "gzip" } }), etag = page1.headers.get("etag")!;
+  assert.equal(page1.headers.get("content-encoding"), "gzip", "the page is sent compressed"); assert.ok(etag);
+  assert.equal((await fetch(base + "/", { headers: { "if-none-match": etag } })).status, 304, "a repeat visit is a 304");
   assert.equal((await fetch(base + "/api/boards?ids=x", { headers: { "x-user-id": "alice" } })).status, 401, "a claimed id means nothing with accounts on");
   await assert.rejects(sock(""), "no session, no socket");
   assert.equal((await post("/api/auth/signup", { name: "alice", password: "short" })).status, 400, "password too short");

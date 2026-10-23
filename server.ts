@@ -1,4 +1,5 @@
-import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
@@ -57,6 +58,7 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
   const previews = new Map<string, { at: number; data: unknown }>(), recent = new Map<string, number[]>(), uploads = new Map<string, number[]>(), fetched = new Map<string, number[]>(), searched = new Map<string, number[]>();
   const db = new DatabaseSync(dbFile);
   db.exec("PRAGMA journal_mode = WAL"); // readers and the writer do not block each other; also what makes a live backup safe
+  db.exec("PRAGMA synchronous = NORMAL"); // with WAL a power cut can lose the last commits but never corrupts the file; far fewer disk syncs
   db.exec("CREATE TABLE IF NOT EXISTS elements (id TEXT PRIMARY KEY, json TEXT NOT NULL)");
   db.exec("CREATE TABLE IF NOT EXISTS media (id TEXT PRIMARY KEY, mime TEXT NOT NULL, data BLOB NOT NULL, owner TEXT NOT NULL)");
   if (!(db.prepare("PRAGMA table_info(media)").all() as { name: string }[]).some((c) => c.name === "at")) db.exec("ALTER TABLE media ADD COLUMN at INTEGER"); // upload time, for the orphan sweep
@@ -67,9 +69,15 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
   const getMedia = db.prepare("SELECT mime, data FROM media WHERE id = ?");
   const upsert = db.prepare("INSERT OR REPLACE INTO elements (id, json) VALUES (?, ?)");
   const save = (e: Element) => void upsert.run(e.id, JSON.stringify(e));
+  // an action that changes many elements is one transaction, not one disk commit per element
+  const batch = <T>(fn: () => T): T => { db.exec("BEGIN"); try { const r = fn(); db.exec("COMMIT"); return r; } catch (e) { db.exec("ROLLBACK"); throw e; } };
   const els = new Map<string, Element>(
     (db.prepare("SELECT json FROM elements").all() as { json: string }[]).map((r) => { const e: Element = JSON.parse(r.json); return [e.id, e]; }),
   );
+  // parent id -> its direct children, so a board is read without scanning every element. Kept in step with every els.set and every location change.
+  const children = new Map<string, Set<Element>>();
+  const adopt = (e: Element) => { const s = children.get(e.location.parentId); s ? s.add(e) : children.set(e.location.parentId, new Set([e])); };
+  for (const e of els.values()) adopt(e);
 
   // --- authorization ---
   // the board an id belongs to: strip the trash suffix, and hop out of columns
@@ -118,7 +126,7 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
     for (const e of els.values()) if (e.content.rootType === "HOME" && e.content.owner === user) return e.id;
     const id = randomUUID().replace(/-/g, "").slice(0, 16);
     const root: Element = { id, elementType: "BOARD", location: { parentId: "", section: "ROOT", position: { score: 0 } }, content: { title: "Home", rootType: "HOME", owner: user }, acl: { [user]: OWNER }, meta: { versionId: "server-1", modifiedTime: Date.now() } };
-    els.set(id, root); save(root);
+    els.set(id, root); adopt(root); save(root);
     return id;
   }
   function joinable(user: string, channel: string) {
@@ -145,6 +153,22 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
   // who is asking: the session's user with accounts, else the claimed id
   const identify = (cookie: string | undefined, claimed: unknown) => (opts.accounts ? sessionUser(cookie) : validUser(claimed) ? claimed : undefined);
 
+  // the page and its scripts: read and gzipped once, and again only when the file changes on disk (so editing index.html still shows on the next reload); ETag makes a repeat visit a 304
+  const sent = new Map<string, { m: number; raw: Buffer; gz: Buffer; etag: string }>();
+  function send(req: IncomingMessage, res: ServerResponse, file: string, type: string, cache: string, variant = "", tweak?: (text: string) => string) {
+    const url = new URL(file, import.meta.url), m = statSync(url).mtimeMs, key = file + "|" + variant;
+    let a = sent.get(key);
+    if (!a || a.m !== m) {
+      const raw = tweak ? Buffer.from(tweak(readFileSync(url, "utf8"))) : readFileSync(url);
+      if (sent.size > 500) sent.clear();
+      sent.set(key, (a = { m, raw, gz: gzipSync(raw), etag: `"${createHash("sha1").update(raw).digest("base64url").slice(0, 16)}"` }));
+    }
+    res.setHeader("vary", "accept-encoding"); res.setHeader("etag", a.etag); res.setHeader("cache-control", cache);
+    if (req.headers["if-none-match"] === a.etag) return void res.writeHead(304).end();
+    const gz = /\bgzip\b/.test(String(req.headers["accept-encoding"] ?? ""));
+    res.writeHead(200, { "content-type": type, ...(gz && { "content-encoding": "gzip" }) }).end(gz ? a.gz : a.raw);
+  }
+
   function apply(a: Action, user: string): Result {
     if (a.type === "ELEMENT_CREATE") {
       const board = boardOf(a.location.parentId);
@@ -154,7 +178,7 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
       if (typeof el.id !== "string" || !/^[\w-]{1,64}$/.test(el.id) || !TYPES.has(el.elementType) || !isObject(el.content) || !small(el)) return { status: 400 };
       el.meta = { ...el.meta, creator: user, modifiedBy: user };
       if (el.elementType === "COMMENT_THREAD") el.content = { ...el.content, messages: [] }; // messages only ever come from COMMENT_ADD
-      els.set(el.id, el); save(el);
+      els.set(el.id, el); adopt(el); save(el);
       return { status: 200, boards: [board], out: { type, ...el } };
     }
     if (a.type === "ELEMENT_UPDATE") {
@@ -172,13 +196,15 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
         boards.add(board);
         if (el.elementType === "BOARD") boards.add(el.id); // people inside the board see its own settings change live, not just its tile
       }
-      for (const u of a.updates) {
-        const el = els.get(u.id)!;
-        Object.assign(el.content, u.changes);
-        el.meta.versionId = u.meta.versionId;
-        el.meta.modifiedTime = Date.now();
-        save(el);
-      }
+      batch(() => {
+        for (const u of a.updates) {
+          const el = els.get(u.id)!;
+          Object.assign(el.content, u.changes);
+          el.meta.versionId = u.meta.versionId;
+          el.meta.modifiedTime = Date.now();
+          save(el);
+        }
+      });
       return { status: 200, boards: [...boards], out: { type: a.type, updates: a.updates } };
     }
     if (a.type === "ELEMENT_MOVE_MULTI") {
@@ -191,12 +217,16 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
         if (!can(user, from, WRITE) || !can(user, to, WRITE)) return { status: 403 };
         boards.add(from); boards.add(to);
       }
-      for (const m of a.moves) {
-        const el = els.get(m.id)!;
-        el.location = m.location;
-        el.meta.locationSectionModifiedTime = Date.now();
-        save(el);
-      }
+      batch(() => {
+        for (const m of a.moves) {
+          const el = els.get(m.id)!;
+          children.get(el.location.parentId)?.delete(el);
+          el.location = m.location;
+          adopt(el);
+          el.meta.locationSectionModifiedTime = Date.now();
+          save(el);
+        }
+      });
       return { status: 200, boards: [...boards], out: { type: a.type, moves: a.moves } };
     }
     if (a.type === "COMMENT_ADD") {
@@ -270,14 +300,12 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
     if (u.pathname === "/favicon.ico") return void res.writeHead(204).end();
     if (u.pathname === "/healthz") return void res.writeHead(200, { "content-type": "text/plain" }).end("ok");
     if (u.pathname === "/") {
-      const me = opts.accounts ? sessionUser(req.headers.cookie) : undefined;
-      res.setHeader("cache-control", "no-store"); // the same address is the login page or the app, depending on the session
-      if (opts.accounts && !me) return void res.writeHead(200, { "content-type": "text/html" }).end(readFileSync(new URL("./login.html", import.meta.url)));
-      const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+      const me = opts.accounts ? sessionUser(req.headers.cookie) : undefined, cache = opts.accounts ? "no-store" : "no-cache"; // with accounts the same address is the login page or the app, depending on the session
+      if (opts.accounts && !me) return send(req, res, "./login.html", "text/html", cache);
       // the user name was checked against the sign-up pattern, so it is safe inside a script
-      return void res.writeHead(200, { "content-type": "text/html" }).end(me ? html.replace('<script src="/socket.io/socket.io.js">', `<script>window.ACCOUNT=${JSON.stringify(me)}</script>$&`) : html);
+      return send(req, res, "./index.html", "text/html", cache, me ?? "", me ? (html) => html.replace('<script src="/socket.io/socket.io.js">', `<script>window.ACCOUNT=${JSON.stringify(me)}</script>$&`) : undefined);
     }
-    if (u.pathname === "/portable.js") return void res.writeHead(200, { "content-type": "text/javascript" }).end(readFileSync(new URL("./portable.js", import.meta.url))); // export / import
+    if (u.pathname === "/portable.js") return send(req, res, "./portable.js", "text/javascript", "no-cache"); // export / import
     const reply = (status: number, body: unknown = {}) => void res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));
     // media ids are unguessable (a capability URL): <img> cannot send our identity header, so reads are public by id
     const media = /^\/api\/media\/([0-9a-f-]{36})$/.exec(u.pathname);
@@ -388,20 +416,18 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
     }
     const ids = (u.searchParams.get("ids") ?? "").split(",").filter(Boolean);
     if (!ids.every((id) => can(user, id, READ))) return reply(403);
-    const kids = (id: string) => [...els.values()].filter((e) => e.location.parentId === id);
+    const kids = (id: string) => [...(children.get(id) ?? [])];
     if (u.pathname === "/api/boards") {
       const elements: Record<string, Element> = {};
       for (const id of ids) for (const e of [els.get(id), ...kids(id)]) if (e) elements[e.id] = e;
       // what a board tile shows underneath its name: nested boards, and cards (a column's cards count, the column itself and lines do not)
-      const byParent = new Map<string, Element[]>();
-      for (const e of els.values()) { const l = byParent.get(e.location.parentId); l ? l.push(e) : byParent.set(e.location.parentId, [e]); }
       const counts: Record<string, { boards: number; cards: number }> = {};
       for (const b of Object.values(elements)) {
         if (b.elementType !== "BOARD") continue;
         let boards = 0, cards = 0;
-        for (const k of byParent.get(b.id) ?? []) {
+        for (const k of children.get(b.id) ?? []) {
           if (k.elementType === "BOARD") boards++;
-          else if (k.elementType === "COLUMN") cards += (byParent.get(k.id) ?? []).length;
+          else if (k.elementType === "COLUMN") cards += children.get(k.id)?.size ?? 0;
           else if (k.elementType !== "LINE") cards++;
         }
         counts[b.id] = { boards, cards };

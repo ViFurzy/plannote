@@ -1037,6 +1037,23 @@ await test("touch: a quick drag that starts on a card pans the board; resting on
   await ctx.close();
 });
 
+await test("big board: 900 cards and 99 lines open quickly, dragging them stays smooth, selecting is quick", async ({ page }) => {
+  const N = 900, ok = await page.evaluate(async (n) => {
+    const send = (0, eval)("send"), B = (0, eval)("B"), made: Promise<{ status: number }>[] = [];
+    for (let i = 0; i < n; i++) made.push(send({ type: "ELEMENT_CREATE", id: "bulk" + i, elementType: "CARD", location: { parentId: B, section: "CANVAS", position: { score: i + 1, x: (i % 30) * 190, y: Math.floor(i / 30) * 110 } }, content: { textContent: "card " + i }, meta: { versionId: "v1", modifiedTime: 1 } }));
+    for (let i = 0; i < 99; i++) made.push(send({ type: "ELEMENT_CREATE", id: "ln" + i, elementType: "LINE", location: { parentId: B, section: "CANVAS", position: { score: n + i + 1, x: 0, y: 0 } }, content: { x1: 0, y1: 0, x2: 0, y2: 0, from: "bulk" + i, to: "bulk" + (i + 1) }, meta: { versionId: "v1", modifiedTime: 1 } }));
+    return (await Promise.all(made)).every((r) => r.status === 200);
+  }, N);
+  assert.ok(ok, "the cards were created");
+  const t0 = Date.now(); await page.reload(); await page.waitForFunction((n) => document.querySelectorAll(".card").length >= n + 99, N, { timeout: 20000 }); const load = Date.now() - t0;
+  const a = mid(await box(page, "#bulk0")), b = { x: a.x + 160, y: a.y + 90 };
+  await page.mouse.click(a.x, a.y); // select one card that has a line on it, then drag it
+  const t1 = Date.now(); await drag(page, a, b, 40); const dragMs = Date.now() - t1;
+  const t2 = Date.now(); await page.keyboard.press("Control+a"); await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(0)))); const selMs = Date.now() - t2;
+  console.log(`       (900 cards + 99 lines: load ${load} ms, a 40-step drag ${dragMs} ms, select all ${selMs} ms)`);
+  assert.ok(load < 6000, `loads in under 6s (${load} ms)`); assert.ok(dragMs < 3000, `the drag takes under 3s (${dragMs} ms)`); assert.ok(selMs < 1500, `select all takes under 1.5s (${selMs} ms)`);
+});
+
 await test("touch: a flick tosses the board, which glides on and stops by itself; a slow drag that stops before lifting does not", async () => {
   const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, hasTouch: true, isMobile: true });
   const page = await ctx.newPage(); page.setDefaultTimeout(8000);
