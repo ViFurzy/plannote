@@ -555,7 +555,7 @@ async function sendAll(list, progress) { // parents come before their children i
     progress(Math.min(i + 50, list.length), list.length);
   }
 }
-const pickBoardLook = (c = {}) => ({ ...(HEX.test(c.color ?? "") || TINTS.includes(c.color) ? { color: c.color } : {}), ...(ICON_NAMES.includes(c.icon) ? { icon: c.icon } : {}) });
+const pickBoardLook = (c = {}) => ({ ...(HEX.test(c.color ?? "") || TINTS.includes(c.color) ? { color: c.color } : {}), ...(iconOk(c.icon) ? { icon: c.icon } : {}) });
 async function fromBoardFile(j, parentPos, out, warn) {
   const board = mkEl("BOARD", { title: j.board?.title || "Imported board", ...pickBoardLook(j.board?.content) }, B, parentPos);
   out.push(board);

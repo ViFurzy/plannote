@@ -318,7 +318,21 @@
   #exmsg { min-height: 1.45em; padding: 4px 6px 0; }
   #impdlg, #sharedlg { position: fixed; top: 110px; left: 50%; transform: translateX(-50%); z-index: 12; width: 400px; max-width: calc(100vw - 24px); padding: 14px; display: grid; gap: 12px;
             background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow-lift); }
-  #impdlg[hidden], #sharedlg[hidden] { display: none; }
+  #impdlg[hidden], #sharedlg[hidden], #iconpick[hidden] { display: none; }
+  #iconpick { position: fixed; top: 110px; left: 50%; transform: translateX(-50%); z-index: 12; width: 460px; max-width: calc(100vw - 24px); max-height: calc(100dvh - 130px); padding: 14px; display: grid; gap: 10px; grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+              background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow-lift); }
+  #iconpick input { font: inherit; font-size: 16px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); min-width: 0; user-select: text; -webkit-user-select: text; }
+  #iconpick .prow { display: flex; justify-content: flex-end; } #iconpick .prow .btn { width: auto; height: auto; padding: 5px 16px; }
+  #iconsug { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; } #iconsug[hidden] { display: none; } #iconsug .lab { flex: none; } #iconsugs { display: flex; gap: 2px; flex-wrap: wrap; flex: 1; }
+  #icongroups { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; touch-action: pan-x; }
+  #icongroups button { flex: none; font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: none; color: var(--ink); cursor: pointer; white-space: nowrap; }
+  #icongroups button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  #icongrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 4px; align-content: start; overflow: auto; min-height: 0; touch-action: pan-y; }
+  #icongrid .none { grid-column: 1 / -1; color: var(--muted); padding: 12px 4px; }
+  #iconpick .ib { width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 8px; background: none; color: var(--ink); cursor: pointer; }
+  #iconpick .ib:hover, #iconpick .ib.on { background: var(--accent-soft); } #iconpick .ib.on { color: var(--accent); }
+  #iconpick .ib svg, #iconshuf svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  #iconBtn svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   #impdlg .ph, #sharedlg .ph { font-weight: 600; }
   #impdlg .prow .btn, #sharedlg .prow .btn { width: auto; height: auto; padding: 5px 16px; }
   #sharedlg .prow, #sharedlg .share-row { display: flex; align-items: center; gap: 8px; }
@@ -509,6 +523,13 @@
   <div id="sharemsg" class="lab"></div>
   <div class="prow"><button class="btn" id="sharelink" title="They need an account here and to be added above">Copy link</button><button class="btn" id="shareclose">Close</button></div>
 </div>
+<div id="iconpick" hidden role="dialog" aria-label="Choose an icon">
+  <input id="iconq" name="iconq" placeholder="Search icons: kitchen, kuchnia, travel, podróże…" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="Search icons">
+  <div id="iconsug"><span class="lab" id="iconsugl"></span><span id="iconsugs"></span><button class="btn ic" id="iconshuf" aria-label="Other suggestions" title="Other suggestions"></button></div>
+  <div id="icongroups"></div>
+  <div id="icongrid"></div>
+  <div class="prow"><button class="btn" id="iconclose">Close</button></div>
+</div>
 <div id="picker" hidden role="dialog" aria-label="Colour picker">
   <div class="ph">Colour</div>
   <div id="pmain"><canvas id="wheel" width="240" height="240"></canvas><div id="vbar"><div id="vthumb"></div></div></div>
@@ -556,7 +577,7 @@
 </div>
 <div class="pill" id="colorbar" hidden><span class="lab">Card colour</span><div class="seg" data-prop="color"></div></div>
 <div class="pill" id="inkbar" hidden><span class="lab">Pen</span><div class="seg" data-prop="ink"></div></div>
-<div class="pill" id="iconbar" hidden><span class="lab">Icon</span><div class="seg" data-prop="icon"></div></div>
+<div class="pill" id="iconbar" hidden><span class="lab">Icon</span><button class="btn ic" id="iconBtn" aria-label="Choose an icon" title="Choose an icon for this board"></button></div>
 </div>
 <div id="canvas"></div>
 <div id="hint"><span class="hk">Add a note, to-do, link, image, column or board from the toolbar.<br>Drag empty space to select cards. Scroll to pan, Ctrl+scroll to zoom. Double-click a card to edit it.<br>Ctrl+C, Ctrl+V and Ctrl+D copy, paste and duplicate; Alt-drag copies. Arrow keys nudge (Shift: further). Press / to search.</span><span class="ht">Tap a tool or drag it onto the board.<br>Double-tap a card to edit or open it. One finger pans, two fingers zoom.</span></div>
@@ -565,6 +586,7 @@
 <div id="trash"></div>
 
 <script src="/socket.io/socket.io.js"></script>
+<script src="/icons.js"></script>
 <script>
 const sid = Math.random().toString(36).slice(2, 8);
 let HOME, B = "", joined = null, n = 0, els = {}, loading = false; // HOME = this user's root board, from app-init
@@ -587,22 +609,28 @@ const NS = "http://www.w3.org/2000/svg";
 // the content field shown in a card's editable text (images have none)
 const FIELD = { IMAGE: "caption", CARD: "textContent", COLUMN: "title", BOARD: "title", TASK_LIST: "title", LINK: "url" };
 const DEFAULT = { COLUMN: "Column", BOARD: "Untitled board", TASK_LIST: "To-do list", LINK: "Paste a link" };
-// board tile icons: simple outline glyphs, one family, drawn in the tile's foreground colour
-const ICONS = Object.fromEntries(Object.entries({
-  grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
-  home: '<path d="M4 11l8-7 8 7"/><path d="M6 10v9h12v-9"/><path d="M10 19v-5h4v5"/>',
-  sparkle: '<path d="M11 3l1.8 5.2L18 10l-5.2 1.8L11 17l-1.8-5.2L4 10l5.2-1.8z"/><path d="M18 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
-  plane: '<path d="M21 4L3 11l7 2 2 7z"/><path d="M10 13l11-9"/>',
-  gamepad: '<rect x="3" y="8" width="18" height="9" rx="4.5"/><path d="M8 11v3M6.5 12.5h3"/><circle cx="15" cy="12" r=".8"/><circle cx="17.5" cy="13.5" r=".8"/>',
-  heart: '<path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10z"/>',
-  camera: '<path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13.5" r="3.5"/>',
-  music: '<path d="M9 18V6l10-2v12"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="16" r="2"/>',
-  cart: '<path d="M3 4h2l2 11h11l2-8H6"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/>',
-  calendar: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',
-  bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.5.4.8 1 .8 1.6V16h5.4v-.5c0-.6.3-1.2.8-1.6A6 6 0 0 0 12 3z"/>',
-  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
-}).map(([k, v]) => [k, `<svg viewBox="0 0 24 24">${v}</svg>`]));
-const ICON_NAMES = Object.keys(ICONS);
+// Board icons come from the library in icons.js (Tabler Icons): one outline family, drawn in the tile's colour. Boards made before the library keep their old names.
+const ICON_ALIAS = { grid: "layout-grid", sparkle: "sparkles", gamepad: "device-gamepad-2", cart: "shopping-cart" };
+const iconOk = (n) => !!ICON_LIB.icons[ICON_ALIAS[n] ?? n];
+const iconKey = (n) => (iconOk(n) ? ICON_ALIAS[n] ?? n : "layout-grid");
+const iconSvg = (n) => `<svg viewBox="0 0 24 24">${ICON_LIB.icons[iconKey(n)][1]}</svg>`;
+// Finding an icon by what is typed, and suggesting one for a board's name. Words are compared without accents and case, and by their stems, so
+// "Kuchnia", "kuchni" and "kitchen" all lead to the same icons (the library carries English and Polish words for each icon).
+const foldWords = (s) => s.toLowerCase().replace(/ł/g, "l").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
+const stem = (w) => (w.length <= 4 ? w : w.slice(0, Math.max(4, w.length - 3)));
+const wordHit = (t, w) => (t.length < 4 || w.length < 4 ? t === w : stem(t).startsWith(stem(w)) || stem(w).startsWith(stem(t)));
+const ICON_INDEX = Object.entries(ICON_LIB.icons).map(([name, [g, , kw]]) => ({ name, g, words: kw.split(" "), own: new Set(name.split("-")).size })); // own: how many leading words are the icon's own name
+const GROUP_WORDS = ICON_LIB.groups.map((g) => g[3].split(" "));
+const iconScore = (ic, tokens) => tokens.reduce((s, t) => { const i = ic.words.findIndex((w) => wordHit(t, w)); return i < 0 ? s : s + (i < ic.own ? 3 : 1); }, 0); // a hit on the icon's own name counts more
+function suggestIcons(title, n = 6) { // a few icons connected to the name, in a different order each time; nothing connected: a surprise
+  const tokens = foldWords(title).filter((t) => t.length > 2);
+  let pool = ICON_INDEX.map((ic) => ({ name: ic.name, s: iconScore(ic, tokens) })).filter((x) => x.s);
+  if (!pool.length) { // no icon is about it: icons of a group that is (kitchen: Food & drink), else any icon
+    const gs = GROUP_WORDS.map((ws, g) => (tokens.some((t) => ws.some((w) => wordHit(t, w))) ? g : -1)).filter((g) => g >= 0);
+    pool = ICON_INDEX.filter((ic) => !gs.length || gs.includes(ic.g)).map((ic) => ({ name: ic.name, s: 1 }));
+  }
+  return pool.map((x) => [x.s + Math.random() * 2, x.name]).sort((a, b) => b[0] - a[0]).slice(0, n).map((x) => x[1]);
+}
 const TINTS = ["sage", "teal", "sand", "orange", "slate", "rose", "lilac"];
 // A colour is either a palette name or a custom #rrggbb. Custom values come from other clients and end up in CSS, so only this exact shape is accepted.
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -705,11 +733,14 @@ function saveViewSoon() {
   viewTimer = setTimeout(() => { try { localStorage[key] = JSON.stringify(snap); } catch {} }, 300);
 }
 function loadView(id) {
+  freshView = false;
   try { const v = JSON.parse(localStorage[viewKey(id)]); if ([v.x, v.y, v.z].every(Number.isFinite)) return { x: v.x, y: v.y, z: clamp(v.z, 0.25, ZOOM_MAX) }; } catch {}
+  freshView = true; // never opened here: load() centres what is on the board once it is drawn, instead of leaving it at the top left
   return { x: 0, y: 0, z: ZOOM_100 };
 }
-// fit every card on the board into the visible area (clear of the toolbar and top bar)
-function fit() {
+let freshView = false;
+// fit every card on the board into the visible area (clear of the toolbar and top bar), zoomed in no further than maxZ
+function fit(maxZ = 1.5) {
   const cards = topCards();
   if (!cards.length) return resetView();
   let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
@@ -718,11 +749,11 @@ function fit() {
     l = Math.min(l, a.x); t = Math.min(t, a.y); r = Math.max(r, z.x); b = Math.max(b, z.y);
   }
   const phone = innerWidth <= 640, pad = 40, left = phone ? 16 : 96, top = 70, w = innerWidth - left - 24, h = innerHeight - top - (phone ? 90 : 24); // on a phone the tools run along the bottom
-  const z = clamp(Math.min(w / (r - l + 2 * pad), h / (b - t + 2 * pad)), 0.25, 1.5);
+  const z = clamp(Math.min(w / (r - l + 2 * pad), h / (b - t + 2 * pad)), 0.25, maxZ);
   view = { z, x: left + (w - (r - l) * z) / 2 - l * z, y: top + (h - (b - t) * z) / 2 - t * z };
   applyView();
 }
-$("zfit").onclick = fit;
+$("zfit").onclick = () => fit();
 const ZOOM_STEP = 1.15; // one turn of the mouse wheel, one click of + or -, one Ctrl+plus/minus: 15%
 function zoomAt(factor, cx = innerWidth / 2, cy = innerHeight / 2) {
   let z = clamp(view.z * factor, 0.25, ZOOM_MAX);
@@ -843,7 +874,7 @@ function syncBars() {
   const picked = [...sel].map((id) => els[id]).filter(Boolean);
   const lines = picked.filter((e) => e.elementType === "LINE"), tintable = picked.filter((e) => COLOURABLE.has(e.elementType)), boards = picked.filter((e) => e.elementType === "BOARD");
   const sketches = picked.filter((e) => e.elementType === "SKETCH");
-  $("linebar").hidden = !lines.length; $("colorbar").hidden = !tintable.length; $("iconbar").hidden = !boards.length; $("inkbar").hidden = !sketches.length;
+  $("linebar").hidden = !lines.length; $("colorbar").hidden = !tintable.length; $("iconbar").hidden = !boards.length; if (!boards.length) $("iconpick").hidden = true; $("inkbar").hidden = !sketches.length;
   $("imgbar").hidden = picked.filter((e) => e.elementType === "IMAGE").length !== 1; syncImgBar(); // picture options for exactly one picture
   markBar($("inkbar"), sketches, (e) => (INK.some(([v]) => v && v === e.content.color) ? e.content.color : colourKey(e.content.color)));
   showCustom($("inkbar"), sketches.map((e) => e.content.color).filter((c) => !INK.some(([v]) => v === c)));
@@ -851,7 +882,7 @@ function syncBars() {
   markBar($("colorbar"), tintable, (e) => colourKey(e.content.color));
   showCustom($("colorbar"), tintable.map((e) => e.content.color));
   showCustom($("linebar"), lines.map((e) => lineProp(e.content, "color")));
-  markBar($("iconbar"), boards, (e) => (ICON_NAMES.includes(e.content.icon) ? e.content.icon : "grid"));
+  if (boards.length) $("iconBtn").innerHTML = iconSvg(boards[0].content.icon); // the button shows the first selected board's icon
 }
 // swatches and icon buttons are generated from the palette so they cannot drift from what render() accepts
 // the rainbow button opens the colour picker; once a custom colour is in use it shows that colour instead
@@ -868,7 +899,6 @@ const swatches = () => `<button class="btn sw none" data-val="" aria-label="No c
 $("colorbar").querySelector(".seg").innerHTML = swatches();
 $("bgpop").querySelector('[data-prop=bgTint]').innerHTML = swatches();
 $("linebar").querySelector("[data-prop=color]").insertAdjacentHTML("beforeend", CUSTOM);
-$("iconbar").querySelector(".seg").innerHTML = ICON_NAMES.map((n) => `<button class="btn ic" data-val="${n}" aria-label="${n}" title="${n}">${ICONS[n]}</button>`).join("");
 const applyTo = (types, changes) => updateMany([...sel].filter((id) => types.has(els[id]?.elementType)).map((id) => ({ id, changes }))); // one action, one undo step
 const firstHex = (values) => values.find((v) => HEX.test(v ?? ""));
 // the formatting bar shows while a note's text is being edited. Its buttons must not take focus from the text, so mousedown is cancelled.
@@ -972,7 +1002,48 @@ function syncImgBar() {
 for (const [id, press] of [["imgPal", ".pal"], ["imgCrop", ".cropb"], ["imgReset", ".resetb"], ["imgPin", ".pinb"], ["imgOpen", ".openb"]]) $(id).onclick = () => { pictureCard()?.querySelector(press).click(); syncImgBar(); };
 $("imgRotate").onclick = () => { const d = pictureCard(); if (d && !d.classList.contains("cropping")) rotateImage(els[d.id]); };
 $("imgDownload").onclick = () => { const d = pictureCard(); if (d) downloadImage(els[d.id]); };
-$("iconbar").onclick = (e) => { const b = e.target.closest("button[data-val]"); if (b) applyTo(new Set(["BOARD"]), { icon: b.dataset.val }); };
+// --- icon picker: search by name or category (English or Polish), a suggestion from the board's name, and the whole library by group ---
+const iconpick = $("iconpick"), PL_UI = /^pl/i.test(navigator.language), groupName = (g) => (PL_UI ? ICON_LIB.groups[g][2] : ICON_LIB.groups[g][1]);
+let iconGroup = -1; // -1: all groups
+const pickedBoards = () => [...sel].map((id) => els[id]).filter((e) => e?.elementType === "BOARD");
+const pickIcon = (name) => { applyTo(new Set(["BOARD"]), { icon: name, iconAuto: null }); iconpick.hidden = true; }; // a choice by hand: the name no longer re-picks it
+const iconBtn = (name) => { const b = Object.assign(document.createElement("button"), { className: "ib", innerHTML: iconSvg(name), title: name.replace(/-/g, " "), onclick: () => pickIcon(name) }); b.dataset.name = name; return b; };
+function showSuggestions() {
+  const b = pickedBoards()[0], title = (b?.content.title ?? "").trim(), named = title && title !== DEFAULT.BOARD;
+  $("iconsugl").textContent = named ? `For “${title.slice(0, 24)}”` : "Surprise me";
+  $("iconsugs").replaceChildren(...suggestIcons(named ? title : "", 6).map(iconBtn));
+}
+function filterIcons() {
+  const tokens = foldWords($("iconq").value), here = pickedBoards()[0]?.content.icon;
+  let shown = 0;
+  for (const b of $("icongrid").querySelectorAll(".ib")) {
+    const ic = ICON_INDEX.find((i) => i.name === b.dataset.name), ok = (iconGroup < 0 || ic.g === iconGroup) && tokens.every((t) => ic.words.some((w) => wordHit(t, w)) || GROUP_WORDS[ic.g].some((w) => wordHit(t, w))); // a category word shows the whole category
+    b.hidden = !ok; b.classList.toggle("on", ic.name === iconKey(here)); shown += ok;
+  }
+  $("icongrid").querySelector(".none").hidden = shown > 0;
+  $("icongroups").querySelectorAll("button").forEach((g) => g.classList.toggle("on", +g.dataset.g === iconGroup));
+}
+function openIconPicker() {
+  if (!$("icongrid").children.length) { // built once: the whole library as buttons, filtered by hiding
+    $("iconshuf").innerHTML = iconSvg("dice");
+    $("icongrid").replaceChildren(...ICON_INDEX.map((ic) => iconBtn(ic.name)), Object.assign(document.createElement("div"), { className: "none", textContent: "No icon for that. Try another word, in English or Polish.", hidden: true }));
+    $("icongroups").replaceChildren(...[-1, ...ICON_LIB.groups.keys()].map((g) => { const b = Object.assign(document.createElement("button"), { textContent: g < 0 ? (PL_UI ? "Wszystkie" : "All") : groupName(g), onclick: () => { iconGroup = g; filterIcons(); } }); b.dataset.g = g; return b; }));
+  }
+  $("iconq").value = ""; iconGroup = -1; showSuggestions(); filterIcons();
+  iconpick.hidden = false; $("iconq").focus({ preventScroll: true });
+}
+$("iconBtn").onclick = () => (iconpick.hidden ? openIconPicker() : (iconpick.hidden = true));
+$("iconshuf").onclick = showSuggestions;
+$("iconclose").onclick = () => (iconpick.hidden = true);
+$("iconq").oninput = () => { filterIcons(); $("iconsug").hidden = !!$("iconq").value.trim(); };
+$("iconq").onkeydown = (e) => { e.stopPropagation(); if (e.key === "Escape") iconpick.hidden = true; };
+// a board with no icon of its own gets a fun one that fits its name when it is named; renaming it picks again, until an icon is chosen by hand
+function autoIcon(b) {
+  const title = (b.content.title ?? "").trim();
+  if (!title || title === DEFAULT.BOARD || (b.content.icon && !b.content.iconAuto)) return;
+  const [pick] = suggestIcons(title, 1);
+  if (pick && pick !== b.content.icon) updateMany([{ id: b.id, changes: { icon: pick, iconAuto: true } }], false); // not its own undo step
+}
 
 // --- colour picker ----------------------------------------------------------------------------------
 const hsv2rgb = (h, s, v) => { const f = (n) => { const k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); }; return [f(5), f(3), f(1)].map((x) => Math.round(x * 255)); };
@@ -1155,8 +1226,8 @@ function render(el) {
   d.classList.toggle("heading", type === "CARD" && !!el.content.heading);
   d.style.zIndex = Number.isFinite(el.content.z) ? el.content.z : ""; // Bring to Front / Send to Back
   if (type === "BOARD") {
-    const tile = d.querySelector(".tile"), icon = ICON_NAMES.includes(el.content.icon) ? el.content.icon : "grid";
-    if (tile.dataset.icon !== icon) { tile.dataset.icon = icon; tile.innerHTML = ICONS[icon]; }
+    const tile = d.querySelector(".tile"), icon = iconKey(el.content.icon);
+    if (tile.dataset.icon !== icon) { tile.dataset.icon = icon; tile.innerHTML = iconSvg(icon); }
     d.querySelector(".sub").textContent = countText((counts[el.id] ??= { boards: 0, cards: 0 })); // a board the server has not counted yet is new, so empty
   }
   // width is the card's own (resizable) setting on the canvas; inside a column it fills the column
@@ -1526,7 +1597,7 @@ function wire(d) {
     html && hasFormatting(cleanHtml(html)) ? document.execCommand("insertHTML", false, cleanHtml(html)) : document.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
   });
   if (t) {
-    t.onblur = (e) => { if (e?.relatedTarget?.closest?.("#fmt")) return; /* focus went to the size box: the note stays open */ t.contentEditable = "false"; (flush() ?? Promise.resolve()).then(() => el() && render(el())); }; // re-render: drop local text that lost a 409
+    t.onblur = (e) => { if (e?.relatedTarget?.closest?.("#fmt")) return; /* focus went to the size box: the note stays open */ t.contentEditable = "false"; const done = flush(); (done ?? Promise.resolve()).then(() => { if (!el()) return; render(el()); if (done && type() === "BOARD") autoIcon(el()); }); }; // re-render: drop local text that lost a 409; a board that was just named gets an icon that fits
     t.oninput = () => { pending = true; clearTimeout(timer); timer = setTimeout(flush, 400); };
   }
 
@@ -1684,7 +1755,7 @@ function wire(d) {
 // --- document-level input: panning, marquee selection, keyboard ---------------------------------
 addEventListener("pointerdown", (e) => {
   if (!$("picker").hidden && !e.target.closest("#picker, .sw.custom")) closePicker(); // a click anywhere else dismisses the picker
-  if (e.target.closest("#tools, #top, #trash, #zoom, #drawbar, #ctx, #bgpop, #picker, #outline, #bpanel")) return;
+  if (e.target.closest("#tools, #top, #trash, #zoom, #drawbar, #ctx, #bgpop, #picker, #iconpick, #outline, #bpanel")) return;
   if (e.button === 1 || (spaceDown && e.button === 0)) { e.preventDefault(); return startPan(e); }
   if (e.button === 0 && tool === "line") { e.preventDefault(); return startLine(e); }
   if (e.button === 0 && tool === "draw") { e.preventDefault(); return startStroke(e); }
@@ -1724,7 +1795,7 @@ function startTouchView(e) {
   };
   addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", up);
 }
-// tossing the board: it keeps moving with the speed the finger had and slows down smoothly (about a second); any touch stops it
+// tossing the board: it keeps moving with the speed the finger had and slows down smoothly (a bit over a second); any touch stops it
 let glideId = 0;
 addEventListener("pointerdown", () => cancelAnimationFrame(glideId), true);
 function glide(vx, vy) { // px per ms
@@ -1732,8 +1803,8 @@ function glide(vx, vy) { // px per ms
   const board = B; let last = performance.now();
   const step = (t) => {
     const dt = Math.min(t - last, 50); last = t;
-    vx *= Math.exp(-dt / 325); vy *= Math.exp(-dt / 325);
-    if (B !== board || Math.hypot(vx, vy) < 0.02) return B === board ? saveViewSoon() : undefined; // the view is saved once, where the toss ends
+    vx *= Math.exp(-dt / 420); vy *= Math.exp(-dt / 420);
+    if (B !== board || Math.hypot(vx, vy) < 0.008) return B === board ? saveViewSoon() : undefined; // the view is saved once, where the toss ends
     view.x += vx * dt; view.y += vy * dt; applyView(false); glideId = requestAnimationFrame(step);
   };
   glideId = requestAnimationFrame(step);
@@ -2445,6 +2516,7 @@ async function load() {
   try { Object.values(els).sort((a, b) => (b.elementType === "COLUMN") - (a.elementType === "COLUMN")).forEach(render); } finally { loading = false; } // columns first
   document.querySelectorAll(".card").forEach((d) => !els[d.id] && d.remove());
   relayout(); // lines can render before the cards they attach to
+  if (freshView) { freshView = false; if (topCards().length) fit(ZOOM_100); } // a board opened for the first time: its cards are centred on the screen (and shrunk to fit if they are too many), not left at the top left
   applyBg();
 }
 

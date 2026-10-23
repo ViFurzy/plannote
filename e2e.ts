@@ -73,8 +73,8 @@ await test("drag a note with the mouse; a second tab of the same user sees it mo
   const start = await box(page, ".note"), a = mid(start);
   await drag(page, a, { x: a.x + 240, y: a.y + 160 });
   await settle(page, 900);
-  const moved = await box(page, ".note"), there = await box(other, ".note");
-  within(moved.x, start.x + 240, 4, "x on this tab"); within(there.x, moved.x, 2, "x on the other tab"); within(there.y, moved.y, 2, "y on the other tab");
+  const moved = await box(page, ".note"), pos = (p: Page) => model(p).then((m) => m.find((e) => e.elementType === "CARD").location.position); // the other tab opened with its own view (the board is centred there), so compare board positions
+  within(moved.x, start.x + 240, 4, "x on this tab"); const here = await pos(page), there = await pos(other); within(there.x, here.x, 2, "x on the other tab"); within(there.y, here.y, 2, "y on the other tab");
   const s = (await stored(page)).find((e) => e.elementType === "CARD");
   within(s.location.position.x, (start.x + 240) / ZOOM, 4, "x stored on the server (the view is not panned: board x is screen x over the zoom)");
 });
@@ -1054,6 +1054,46 @@ await test("big board: 900 cards and 99 lines open quickly, dragging them stays 
   assert.match((await page.locator("#bulk0").getAttribute("aria-label")) ?? "", /^note: card 0/, "cards are labelled for screen readers");
   console.log(`       (900 cards + 99 lines: load ${load} ms, a 40-step drag ${dragMs} ms, select all ${selMs} ms)`);
   assert.ok(load < 6000, `loads in under 6s (${load} ms)`); assert.ok(dragMs < 3000, `the drag takes under 3s (${dragMs} ms)`); assert.ok(selMs < 1500, `select all takes under 1.5s (${selMs} ms)`);
+});
+
+await test("board icons: a fitting icon for the board's name (English or Polish), search by name or category in both languages, a chosen icon sticks", async ({ page }) => {
+  const iconOf = (title: string) => page.evaluate((t) => (Object.values((window as any).__els()) as any[]).find((e) => e.content.title === t)?.content, title);
+  const words = (name: string) => page.evaluate((n) => (0, eval)("ICON_INDEX").find((i: any) => i.name === n).words.join(" "), name);
+  await add(page, "brd", "Kitchen"); await settle(page, 700);
+  let c = await iconOf("Kitchen"); assert.ok(c.icon && c.iconAuto, "a new named board gets an icon of its own");
+  assert.match(await words(c.icon), /kitchen|cook|food|chef|meal|egg|bread|cake|cheese|apple|coffee|salad|pizza|burger|soup|grill|bowl|glass|cup|bottle|cookie|candy|milk/, `${c.icon} fits a kitchen`);
+  await add(page, "brd", "Łazienka"); await settle(page, 700);
+  c = await iconOf("Łazienka"); assert.ok(c.icon && c.iconAuto, "a Polish name works too");
+  assert.match(await words(c.icon), /lazienk|kapiel|prysznic|wanna|bath|shower|toilet|wash|trash/, `${c.icon} fits a bathroom`);
+  const tile = await page.locator(".board", { hasText: "Kitchen" }).locator(".tile svg").count(); assert.equal(tile, 1, "the tile draws it");
+  // the picker: suggestions, search, categories
+  await page.locator(".board", { hasText: "Kitchen" }).click(); await page.click("#iconBtn");
+  await page.waitForSelector("#iconpick:not([hidden])");
+  assert.ok((await page.locator("#iconsugs .ib").count()) >= 3, "suggestions for the name are offered");
+  const shown = (q: string) => page.evaluate(async (q) => { const i = document.getElementById("iconq") as HTMLInputElement; i.value = q; i.dispatchEvent(new Event("input")); return [...document.querySelectorAll<HTMLElement>("#icongrid .ib")].filter((b) => !b.hidden).map((b) => b.dataset.name); }, q);
+  assert.ok((await shown("kuchnia")).includes("chef-hat"), "'kuchnia' finds the chef hat"); assert.ok((await shown("cooking")).includes("chef-hat"), "so does 'cooking'");
+  assert.ok((await shown("lazienka")).includes("bath"), "no accents needed"); assert.ok((await shown("łazienka")).includes("bath"), "with accents too");
+  assert.ok((await shown("podróże")).includes("plane"), "a category word in Polish shows the category"); assert.equal((await shown("zzzzqq")).length, 0, "nonsense finds nothing");
+  assert.ok((await shown("")).length > 300, "an empty search shows the whole library");
+  await page.click("#icongroups button >> nth=2"); assert.ok((await shown("")).length < 80, "a category narrows it");
+  // choosing by hand
+  await page.click("#icongroups button >> nth=0"); await page.fill("#iconq", "rocket"); await page.locator('#icongrid .ib[data-name="rocket"]').click(); await settle(page, 600);
+  c = await iconOf("Kitchen"); assert.equal(c.icon, "rocket"); assert.ok(!c.iconAuto, "a chosen icon is no longer automatic");
+  assert.equal(await page.locator("#iconpick").isVisible(), false, "the picker closes after a choice");
+  await page.locator(".board", { hasText: "Kitchen" }).locator(".tile svg").waitFor();
+});
+
+await test("a board opened for the first time is centred on the screen, not left at the top left", async ({ page, user }) => {
+  await page.evaluate(async () => {
+    const send = (0, eval)("send"), B = (0, eval)("B");
+    for (const [i, [x, y]] of [[0, 0], [600, 0], [0, 300], [600, 300]].entries()) await send({ type: "ELEMENT_CREATE", id: "c" + i, elementType: "CARD", location: { parentId: B, section: "CANVAS", position: { score: i + 1, x, y } }, content: { textContent: "card " + i }, meta: { versionId: "v1", modifiedTime: 1 } });
+  });
+  const other = await browser.newContext({ viewport: { width: 1400, height: 900 } }); // a browser that has never seen this board: no remembered view
+  const p = await other.newPage(); p.setDefaultTimeout(8000); await p.goto(`${URL}/?u=${user}`);
+  await p.waitForFunction(() => document.querySelectorAll(".card").length === 4); await settle(p, 400);
+  const r = await p.evaluate(() => { const b = [...document.querySelectorAll(".card")].map((c) => c.getBoundingClientRect()); return { l: Math.min(...b.map((x) => x.left)), r: Math.max(...b.map((x) => x.right)), t: Math.min(...b.map((x) => x.top)), b: Math.max(...b.map((x) => x.bottom)) }; });
+  within((r.l + r.r) / 2, (96 + 1400 - 24) / 2, 40, "centred sideways in the free area"); within((r.t + r.b) / 2, (70 + 900 - 24) / 2, 40, "centred up and down");
+  assert.ok(r.l > 90, "not left at the top left"); await other.close();
 });
 
 await test("conflict: an edit on a stale version is retried on the fresh card, without reloading the board", async ({ page }) => {

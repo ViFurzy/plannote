@@ -5,7 +5,7 @@ ENV NODE_ENV=production PORT=3000 DB=/data/boardsync.db BACKUP_DIR=/data/backups
 # production dependencies only; Node 24 runs the TypeScript directly, so there is no build step
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
-COPY server.ts unfurl.ts index.html login.html portable.js ./
+COPY server.ts unfurl.ts index.html login.html portable.js icons.js ./
 
 # the database and its backups live in the /data volume, so the image can be replaced without losing boards
 RUN mkdir /data && chown node:node /data

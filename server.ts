@@ -306,6 +306,7 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
       return send(req, res, "./index.html", "text/html", cache, me ?? "", me ? (html) => html.replace('<script src="/socket.io/socket.io.js">', `<script>window.ACCOUNT=${JSON.stringify(me)}</script>$&`) : undefined);
     }
     if (u.pathname === "/portable.js") return send(req, res, "./portable.js", "text/javascript", "no-cache"); // export / import
+    if (u.pathname === "/icons.js") return send(req, res, "./icons.js", "text/javascript", "no-cache"); // the board icon library
     const reply = (status: number, body: unknown = {}) => void res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));
     // media ids are unguessable (a capability URL): <img> cannot send our identity header, so reads are public by id
     const media = /^\/api\/media\/([0-9a-f-]{36})$/.exec(u.pathname);
