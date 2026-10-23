@@ -685,12 +685,15 @@ const hasFormatting = (html) => /<(b|strong|i|em|u|s|strike|ul|ol|li|h[1-3]|a|ma
 const ZOOM_100 = 0.76, ZOOM_MAX = 2 * ZOOM_100; // the scale shown as 100% (the board is drawn at 76% of its natural size); the range shown is 33% to 200%
 let view = { x: 0, y: 0, z: ZOOM_100 };
 const toBoard = (cx, cy) => ({ x: (cx - view.x) / view.z, y: (cy - view.y) / view.z });
+let shown = { z: 0, pct: "", nodots: null }; // what the page already shows: panning must not rewrite it every frame
 function applyView(save = true) {
   $("canvas").style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.z})`;
-  document.body.style.backgroundSize = `${24 * view.z}px ${24 * view.z}px`;
   document.body.style.backgroundPosition = `${view.x}px ${view.y}px`;
-  $("zreset").textContent = Math.round(view.z / ZOOM_100 * 100) + "%";
-  document.body.classList.toggle("nodots", view.z < ZOOM_100 - 0.001); // zoomed out past 100%: the dots or grid would only be noise
+  if (view.z !== shown.z) { document.body.style.backgroundSize = `${24 * view.z}px ${24 * view.z}px`; shown.z = view.z; }
+  const pct = Math.round(view.z / ZOOM_100 * 100) + "%";
+  if (pct !== shown.pct) $("zreset").textContent = shown.pct = pct;
+  const nodots = view.z < ZOOM_100 - 0.001; // zoomed out past 100%: the dots or grid would only be noise
+  if (nodots !== shown.nodots) document.body.classList.toggle("nodots", shown.nodots = nodots);
   if (save) saveViewSoon();
 }
 // the view is remembered per board and per user, so reopening a board puts you back where you were
@@ -1169,9 +1172,11 @@ function render(el) {
   }
   const t = editor(d);
   if (t && t.contentEditable !== "true") { // don't clobber local typing
-    if (type === "CARD" && el.content.html) t.innerHTML = cleanHtml(el.content.html);
-    else t.textContent = el.content[FIELD[type]] || DEFAULT[type] || "";
+    if (type === "CARD" && el.content.html) { const html = cleanHtml(el.content.html); if (t.innerHTML !== html) t.innerHTML = html; } // an unchanged text is not rewritten: that would reset it (and its layout) for nothing
+    else { const text = el.content[FIELD[type]] || DEFAULT[type] || ""; if (t.textContent !== text) t.textContent = text; }
   }
+  const label = (KIND[type] + ": " + preview(el)).slice(0, 100); // what a screen reader says for the card
+  if (d.getAttribute("aria-label") !== label) d.setAttribute("aria-label", label);
   if (type === "COLUMN") Object.values(els).filter((k) => k.location.parentId === el.id).forEach(render); // cards that came back with a restored column
   if (type === "LINK") {
     const u = safeUrl(el.content.url || ""), a = d.querySelector(".go");
@@ -1249,10 +1254,18 @@ let q = Promise.resolve();
 const updateMany = (items, record = true) => (q = q.then(async () => {
   const live = items.map((i) => ({ ...i, el: els[i.id] })).filter((i) => i.el);
   if (!live.length) return false;
-  const prev = live.map((i) => Object.fromEntries(Object.keys(i.changes).map((k) => [k, i.el.content[k] ?? null]))); // what each key was before
-  const ups = live.map((i) => ({ ...i, vid: sid + "-" + ++n }));
-  const r = await send({ type: "ELEMENT_UPDATE", updates: ups.map((u) => ({ id: u.id, changes: u.changes, meta: { modifiedVersionId: u.el.meta.versionId, versionId: u.vid } })) });
-  if (r.status !== 200) { await resync(); return false; } // 409/403: refetch
+  const before = () => live.map((i) => Object.fromEntries(Object.keys(i.changes).map((k) => [k, i.el.content[k] ?? null]))); // what each key was
+  let prev = before(), ups, r;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    ups = live.map((i) => ({ ...i, vid: sid + "-" + ++n }));
+    r = await send({ type: "ELEMENT_UPDATE", updates: ups.map((u) => ({ id: u.id, changes: u.changes, meta: { modifiedVersionId: u.el.meta.versionId, versionId: u.vid } })) });
+    if (r.status !== 409 || attempt) break;
+    // someone else changed one of these cards first: take their version of just these cards and apply our change on top, once (no reload of the whole board)
+    const fresh = await fetchBoards(live.map((i) => i.id)).catch(() => ({}));
+    for (const i of live) { const f = fresh[i.id]; if (f) { Object.assign(i.el.content, f.content); i.el.meta.versionId = f.meta.versionId; render(i.el); } }
+    prev = before();
+  }
+  if (r.status !== 200) { await resync(); return false; } // 403, or a second conflict: refetch the board
   ups.forEach((u) => { Object.assign(u.el.content, u.changes); u.el.meta.versionId = u.vid; render(u.el); });
   if (record) pushHistory({ kind: "update", items: live.map((i, k) => ({ id: i.id, prev: prev[k], next: i.changes })) });
   return true;
@@ -1719,8 +1732,8 @@ function glide(vx, vy) { // px per ms
   const step = (t) => {
     const dt = Math.min(t - last, 50); last = t;
     vx *= Math.exp(-dt / 325); vy *= Math.exp(-dt / 325);
-    if (B !== board || Math.hypot(vx, vy) < 0.02) return;
-    view.x += vx * dt; view.y += vy * dt; applyView(); glideId = requestAnimationFrame(step);
+    if (B !== board || Math.hypot(vx, vy) < 0.02) return B === board ? saveViewSoon() : undefined; // the view is saved once, where the toss ends
+    view.x += vx * dt; view.y += vy * dt; applyView(false); glideId = requestAnimationFrame(step);
   };
   glideId = requestAnimationFrame(step);
 }
@@ -2377,7 +2390,8 @@ function runSearch() {
   const query = $("q").value.trim().toLowerCase();
   document.body.classList.toggle("searching", !!query);
   hits = query ? Object.values(els).filter((e) => KIND[e.elementType] && e.location.section !== "TRASH" && e.id !== B && searchText(e).includes(query)).map((e) => e.id) : [];
-  document.querySelectorAll(".card").forEach((c) => c.classList.toggle("found", hits.includes(c.id)));
+  const found = new Set(hits);
+  document.querySelectorAll(".card").forEach((c) => c.classList.toggle("found", found.has(c.id)));
   $("qcount").textContent = query ? (hits.length === 1 ? "1 match" : `${hits.length} matches`) : "";
 }
 function centerOn(id) { // pan (keeping the zoom) so a card sits in the middle of the screen, and select it
@@ -2393,11 +2407,24 @@ $("q").onkeydown = (e) => {
 };
 
 // remote actions (only rooms we joined are delivered)
+// The model changes at once; drawing is done once per frame, so another user moving 500 cards is one pass over the DOM, not 500 separate ones.
+const toDraw = new Set();
+function drawSoon(id) {
+  if (!toDraw.size) { requestAnimationFrame(drawNow); setTimeout(drawNow, 100); } // the timer covers a background tab, where frames do not run
+  toDraw.add(id);
+}
+function drawNow() {
+  const ids = [...toDraw]; toDraw.clear();
+  loading = true; // lines are laid out once at the end, not after every card
+  try { ids.forEach((id) => els[id] && render(els[id])); } finally { loading = false; }
+  if (ids.length > 1) relayout();
+  else if (ids.length) relayout(ids[0]);
+}
 s.on("action", (a) => {
-  if (a.type === "ELEMENT_CREATE") { const { type, channels, ...el } = a; els[el.id] = el; render(el); }
+  if (a.type === "ELEMENT_CREATE") { const { type, channels, ...el } = a; els[el.id] = el; drawSoon(el.id); }
   if (a.type === "COMMENT_ADD" && els[a.id]) addMessage(els[a.id], a.message);
-  if (a.type === "ELEMENT_UPDATE") for (const u of a.updates) { const el = els[u.id]; if (!el) continue; Object.assign(el.content, u.changes); el.meta.versionId = u.meta.versionId; render(el); }
-  if (a.type === "ELEMENT_MOVE_MULTI") for (const m of a.moves) { const el = els[m.id]; if (el) { el.location = m.location; render(el); } }
+  if (a.type === "ELEMENT_UPDATE") for (const u of a.updates) { const el = els[u.id]; if (!el) continue; Object.assign(el.content, u.changes); el.meta.versionId = u.meta.versionId; drawSoon(el.id); }
+  if (a.type === "ELEMENT_MOVE_MULTI") for (const m of a.moves) { const el = els[m.id]; if (el) { el.location = m.location; drawSoon(el.id); } }
 });
 
 const fetchBoards = async (ids) => {

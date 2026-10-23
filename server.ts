@@ -498,7 +498,13 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
     for (const old of readdirSync(opts.backupDir).filter((f) => /^boardsync-.*\.db$/.test(f)).sort().slice(0, -7)) rmSync(join(opts.backupDir, old));
   };
   const dropOldSessions = () => void db.prepare("DELETE FROM sessions WHERE at < ?").run(Date.now() - SESSION_MS);
-  const timers = [setInterval(sweepMedia, 3_600_000), setInterval(backup, 6 * 3_600_000), setInterval(dropOldSessions, 3_600_000)];
+  // the per-user and per-address counters only forget a key when that key comes back, so keys seen once would stay forever
+  const sweepCounters = () => {
+    const now = Date.now();
+    for (const m of [recent, uploads, fetched, searched, tries]) for (const [k, v] of m) if (!v.length || now - v[v.length - 1] > 60_000) m.delete(k);
+    for (const [k, v] of previews) if (now - v.at > 600_000) previews.delete(k);
+  };
+  const timers = [setInterval(sweepMedia, 3_600_000), setInterval(backup, 6 * 3_600_000), setInterval(dropOldSessions, 3_600_000), setInterval(sweepCounters, 600_000)];
   timers.forEach((t) => t.unref());
   sweepMedia(); backup(); dropOldSessions();
 

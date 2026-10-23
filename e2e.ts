@@ -1050,8 +1050,23 @@ await test("big board: 900 cards and 99 lines open quickly, dragging them stays 
   await page.mouse.click(a.x, a.y); // select one card that has a line on it, then drag it
   const t1 = Date.now(); await drag(page, a, b, 40); const dragMs = Date.now() - t1;
   const t2 = Date.now(); await page.keyboard.press("Control+a"); await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(0)))); const selMs = Date.now() - t2;
+  assert.match((await page.locator("#bulk0").getAttribute("aria-label")) ?? "", /^note: card 0/, "cards are labelled for screen readers");
   console.log(`       (900 cards + 99 lines: load ${load} ms, a 40-step drag ${dragMs} ms, select all ${selMs} ms)`);
   assert.ok(load < 6000, `loads in under 6s (${load} ms)`); assert.ok(dragMs < 3000, `the drag takes under 3s (${dragMs} ms)`); assert.ok(selMs < 1500, `select all takes under 1.5s (${selMs} ms)`);
+});
+
+await test("conflict: an edit on a stale version is retried on the fresh card, without reloading the board", async ({ page }) => {
+  await add(page, "note", "one"); await add(page, "note", "two");
+  const out = await page.evaluate(async () => {
+    const els = (0, eval)("els"), update = (0, eval)("update"), cards = Object.values(els) as any[];
+    const a = cards.find((e) => e.content.textContent === "one"), other = document.getElementById(cards.find((e) => e.content.textContent === "two").id)!;
+    (other as any).mark = "same node"; // a full reload of the board would replace this element
+    a.meta.versionId = "somebody-else-got-there-first";
+    const ok = await update(a, { color: "orange" });
+    return { ok, mark: (document.getElementById(other.id) as any).mark, color: a.content.color };
+  });
+  assert.equal(out.ok, true, "the edit went through on the second try"); assert.equal(out.mark, "same node", "the board was not reloaded"); assert.equal(out.color, "orange");
+  assert.ok((await stored(page)).some((e) => e.content.textContent === "one" && e.content.color === "orange"), "the server has it");
 });
 
 await test("touch: a flick tosses the board, which glides on and stops by itself; a slow drag that stops before lifting does not", async () => {
