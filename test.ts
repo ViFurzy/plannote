@@ -368,7 +368,7 @@ console.log("ok: home boards, no squatting, acl grant/revoke, READ/WRITE/ADMIN, 
   assert.deepEqual(shared, { status: 200, acl: { alice: 7, bob: 3 } }, "the board got its own list, owner first");
   assert.equal((await get("/api/boards?ids=shared1", cb)).status, 200, "bob can read the shared board");
   assert.equal((await get("/api/boards?ids=" + aHome, cb)).status, 403, "but not alice's Home");
-  assert.equal((await get("/api/tree", cb)).body.boards.some((b: any) => b.id === "shared1"), true, "it shows in bob's boards");
+  assert.equal((await get("/api/tree", cb)).body.boards.find((b: any) => b.id === "shared1")?.owner, "alice", "it shows in bob's boards, with its owner");
   assert.equal(await join(sb, "shared1"), 200);
   const note = { id: "n-shared", elementType: "CARD", location: { parentId: "shared1", section: "CANVAS", position: { score: 1, x: 0, y: 0 } }, content: { textContent: "hi" }, meta: { versionId: "v1", modifiedTime: 1 } };
   assert.equal(await act(sb, { type: "ELEMENT_CREATE", ...note }), 200, "bob can edit it");

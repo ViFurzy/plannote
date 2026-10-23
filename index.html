@@ -77,7 +77,7 @@
   .card { position: absolute; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow);
           cursor: grab; touch-action: none; transition: box-shadow .15s; }
   .card:hover { box-shadow: 0 2px 8px rgb(16 24 40 / .14); }
-  .card.dragging { box-shadow: var(--shadow-lift); cursor: grabbing; transition: none; }
+  .card.held, .card.dragging { box-shadow: var(--shadow-lift); cursor: grabbing; transition: none; }
   .card.selected, .card:has(> [contenteditable=true]) { outline: 2px solid var(--accent); outline-offset: 2px; }
   .card [contenteditable=true] { user-select: text; cursor: text; outline: none; }
   .card input { user-select: text; }
@@ -1345,7 +1345,7 @@ let spaceDown = false, tool = null; // tool: "line" | "draw" while one of those 
 const noNest = (g) => g.classList.contains("column") || g.classList.contains("line"); // these stay on the canvas
 
 function wire(d) {
-  let timer, drag, resize, handle, pending = false, taskTimer, taskPending = false;
+  let timer, drag, resize, handle, pending = false, taskTimer, taskPending = false, holdTimer;
   const el = () => els[d.id], t = editor(d), type = () => el().elementType;
 
   d.onpointerdown = (e) => {
@@ -1364,6 +1364,10 @@ function wire(d) {
     const mod = e.shiftKey || e.ctrlKey || e.metaKey, was = sel.has(d.id);
     if (!was) setSel(mod ? [...sel, d.id] : [d.id]);
     drag = { sx: e.clientX, sy: e.clientY, moved: false, mod, was, alt: e.altKey, tg: e.target, touch: e.pointerType !== "mouse" }; // Alt held at the start: the drop makes a copy
+    if (drag.touch) { // a finger must rest on the card for a moment to drag it; moving at once pans the board, so a crowded board can still be moved around
+      clearTimeout(holdTimer);
+      holdTimer = setTimeout(() => { if (drag) { drag.held = true; d.classList.add("held"); navigator.vibrate?.(15); } }, 350);
+    }
   };
 
   d.onpointermove = (e) => {
@@ -1389,6 +1393,10 @@ function wire(d) {
       return;
     }
     if (!drag) return;
+    if (drag.touch && !drag.held) { // not held long enough: a move past 10px hands this finger to the board pan instead
+      if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 10) { clearTimeout(holdTimer); const s = drag; drag = null; startTouchView({ pointerId: e.pointerId, clientX: s.sx, clientY: s.sy }); }
+      return;
+    }
     if (!drag.moved) {
       if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 3) return; // a click, not a drag
       drag.moved = true;
@@ -1416,6 +1424,7 @@ function wire(d) {
   };
 
   d.onpointerup = (e) => {
+    clearTimeout(holdTimer); d.classList.remove("held");
     if (handle) {
       const { which, x, y, target } = handle; handle = null; markTarget(null);
       if (x !== undefined) update(el(), { ["x" + which]: x, ["y" + which]: y, [which === 1 ? "from" : "to"]: target ?? null }); // dropped on empty canvas: detached
@@ -2117,7 +2126,13 @@ $("shareBtn").onclick = () => { sharedlg.hidden = !sharedlg.hidden; if (!sharedl
 $("shareclose").onclick = () => (sharedlg.hidden = true);
 $("shareadd").onclick = () => { const n = $("shareuser").value.trim().toLowerCase(); if (n) { setShare(n, +$("sharepm").value); $("shareuser").value = ""; } };
 $("shareuser").onkeydown = (e) => { e.stopPropagation(); if (e.key === "Enter") $("shareadd").click(); else if (e.key === "Escape") sharedlg.hidden = true; };
-$("sharelink").onclick = async () => { try { await navigator.clipboard.writeText(location.origin + "/#" + B); toast("Link copied"); } catch { flash("Could not copy"); } };
+$("sharelink").onclick = async () => {
+  const link = location.origin + "/#" + B;
+  try { await navigator.clipboard.writeText(link); return toast("Link copied"); } catch { /* the clipboard API needs https or localhost: try the old way */ }
+  const t = Object.assign(document.createElement("textarea"), { value: link }); sharedlg.append(t); t.select();
+  const ok = document.execCommand("copy"); t.remove();
+  if (ok) toast("Link copied"); else $("sharemsg").textContent = "Copy it from here: " + link;
+};
 
 // --- phones ---
 // The board has its own pan and zoom, so the browser must never zoom the page: iOS ignores touch-action for pinches, hence these (and maximum-scale in the viewport tag).
@@ -2425,9 +2440,12 @@ function renderTree(data) {
     rows.push(row);
     if (expanded.has(b.id)) ks.forEach((k) => walk(k, depth + 1));
   };
-  data.boards.filter((b) => !b.parent || !byId.has(b.parent)).forEach((r) => walk(r, 0));
+  const roots = data.boards.filter((b) => !b.parent || !byId.has(b.parent)), theirs = (b) => b.owner && b.owner !== uid && b.id !== data.home; // a shared board hangs under its owner's Home, which you cannot open
+  roots.filter((b) => !theirs(b)).forEach((r) => walk(r, 0));
+  const shared = [];
+  roots.filter(theirs).forEach((r) => { const n = rows.length; walk(r, 0); rows[n].append(h("small", "", "from " + r.owner)); shared.push(...rows.splice(n)); });
   const seen = recents().filter((r) => r.id !== B && byId.has(r.id)).map((r) => { const row = h("button", "row", byId.get(r.id).title || r.title); row.onclick = () => goTo(r.id); return row; });
-  blist.replaceChildren(...(seen.length ? [h("h4", "", "Recent"), ...seen] : []), h("h4", "", "All boards"), ...rows);
+  blist.replaceChildren(...(seen.length ? [h("h4", "", "Recent"), ...seen] : []), h("h4", "", "All boards"), ...rows, ...(shared.length ? [h("h4", "", "Shared with you"), ...shared] : []));
 }
 async function showTree() {
   const r = await fetch("/api/tree", { headers: { "x-user-id": uid } }).catch(() => null);

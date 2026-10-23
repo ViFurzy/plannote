@@ -1015,6 +1015,26 @@ await test("phone: one row top bar, nothing wider than the screen, tap targets 4
   await ctx.close();
 });
 
+await test("touch: a quick drag that starts on a card pans the board; resting on the card first lets you drag it", async () => {
+  const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, hasTouch: true, isMobile: true });
+  const page = await ctx.newPage(); page.setDefaultTimeout(8000);
+  await page.goto(`${URL}/?u=hold${Date.now().toString(36)}`);
+  await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live");
+  await add(page, "note", "hold me");
+  const cdp = await ctx.newCDPSession(page), touch = (type: string, pts: any[]) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: pts });
+  const state = () => page.evaluate(() => ({ view: document.getElementById("canvas")!.style.transform, card: (Object.values((window as any).__els()) as any[]).find((e) => e.content.textContent === "hold me").location.position.x }));
+  const c = mid(await box(page, ".note")), s0 = await state();
+  await touch("touchStart", [{ x: c.x, y: c.y, id: 1 }]); await touch("touchMove", [{ x: c.x + 40, y: c.y + 10, id: 1 }]); await touch("touchMove", [{ x: c.x + 80, y: c.y + 20, id: 1 }]); await touch("touchEnd", []); await settle(page, 500);
+  const s1 = await state();
+  assert.notEqual(s1.view, s0.view, "the board panned"); assert.equal(s1.card, s0.card, "the card stayed where it was");
+  const c2 = mid(await box(page, ".note"));
+  await touch("touchStart", [{ x: c2.x, y: c2.y, id: 1 }]); await settle(page, 500);
+  await touch("touchMove", [{ x: c2.x + 60, y: c2.y, id: 1 }]); await touch("touchMove", [{ x: c2.x + 120, y: c2.y, id: 1 }]); await touch("touchEnd", []); await settle(page, 700);
+  const s2 = await state();
+  assert.equal(s2.view, s1.view, "held first: the board did not pan"); assert.ok(s2.card > s1.card + 50, `the card moved (${s1.card} -> ${s2.card})`);
+  await ctx.close();
+});
+
 // accounts: a second server with logins on; two browsers (alice, bob) go through the login page and the Share dialog
 await test("accounts: the login page, sign up, log out and in; sharing a board by username gives that user access", async () => {
   const as = createServer(3993, ":memory:", { accounts: true }), AURL = "http://localhost:3993";
@@ -1050,6 +1070,9 @@ await test("accounts: the login page, sign up, log out and in; sharing a board b
     assert.ok((await model(bob)).some((e) => e.content.textContent === "from alice"), "bob sees alice's note on the shared board");
     await add(bob, "note", "from bob"); await settle(alice, 600);
     assert.ok((await model(alice)).some((e) => e.content.textContent === "from bob"), "and alice sees bob's note live");
+    await bob.click("#boardsBtn"); await bob.waitForSelector("#blist .row");
+    assert.match(await bob.locator("#blist").innerText(), /Shared with you[\s\S]*Together[\s\S]*from alice/, "the board is listed under Shared with you, with its owner");
+    await bob.keyboard.press("Escape");
     await bob.click("#gearBtn"); await bob.click("#shareBtn");
     assert.equal(await bob.locator("#shareadd").isDisabled(), true, "bob can edit but not change who has access");
   } finally { for (const c of ctxs) await c.close(); await as.close(); }

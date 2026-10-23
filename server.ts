@@ -329,7 +329,7 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
     if (u.pathname === "/api/users/me/app-init") return reply(200, { homeBoardId: homeOf(user) });
     if (u.pathname === "/api/tree") { // every board this user can read (not in a Trash), for the boards panel: [{id, title, parent, icon, color}]
       const boards = [...els.values()].filter((e) => e.elementType === "BOARD" && !inTrash(e) && can(user, e.id, READ));
-      return reply(200, { home: homeOf(user), boards: boards.map((b) => ({ id: b.id, title: String(b.content.title ?? ""), parent: boardOf(b.location.parentId), icon: b.content.icon ?? null, color: b.content.color ?? null })) });
+      return reply(200, { home: homeOf(user), boards: boards.map((b) => ({ id: b.id, title: String(b.content.title ?? ""), parent: boardOf(b.location.parentId), icon: b.content.icon ?? null, color: b.content.color ?? null, owner: b.acl && b.content.rootType !== "HOME" ? Object.entries(b.acl).find(([, p]) => p === OWNER)?.[0] ?? null : null })) }); // owner: only boards that carry their own acl (shared ones)
     }
     if (u.pathname === "/api/search") { // text search across every board this user can read: [{id, board, boardTitle, type, snippet}]
       const now = Date.now(), mine = (searched.get(user) ?? []).filter((t) => now - t < 60_000), q = (u.searchParams.get("q") ?? "").trim().toLowerCase().slice(0, 100);
