@@ -1025,14 +1025,37 @@ await test("touch: a quick drag that starts on a card pans the board; resting on
   const cdp = await ctx.newCDPSession(page), touch = (type: string, pts: any[]) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: pts });
   const state = () => page.evaluate(() => ({ view: document.getElementById("canvas")!.style.transform, card: (Object.values((window as any).__els()) as any[]).find((e) => e.content.textContent === "hold me").location.position.x }));
   const c = mid(await box(page, ".note")), s0 = await state();
-  await touch("touchStart", [{ x: c.x, y: c.y, id: 1 }]); await touch("touchMove", [{ x: c.x + 40, y: c.y + 10, id: 1 }]); await touch("touchMove", [{ x: c.x + 80, y: c.y + 20, id: 1 }]); await touch("touchEnd", []); await settle(page, 500);
-  const s1 = await state();
+  await touch("touchStart", [{ x: c.x, y: c.y, id: 1 }]); await touch("touchMove", [{ x: c.x + 40, y: c.y + 10, id: 1 }]); await touch("touchMove", [{ x: c.x + 80, y: c.y + 20, id: 1 }]); await touch("touchEnd", []); await settle(page, 2500); // the flick glides on for a moment
+  let s1 = await state();
   assert.notEqual(s1.view, s0.view, "the board panned"); assert.equal(s1.card, s0.card, "the card stayed where it was");
+  await page.evaluate(() => (document.getElementById("zreset") as HTMLElement).click()); await settle(page, 300); s1 = await state(); // the flick may have thrown the card off screen
   const c2 = mid(await box(page, ".note"));
   await touch("touchStart", [{ x: c2.x, y: c2.y, id: 1 }]); await settle(page, 500);
   await touch("touchMove", [{ x: c2.x + 60, y: c2.y, id: 1 }]); await touch("touchMove", [{ x: c2.x + 120, y: c2.y, id: 1 }]); await touch("touchEnd", []); await settle(page, 700);
   const s2 = await state();
   assert.equal(s2.view, s1.view, "held first: the board did not pan"); assert.ok(s2.card > s1.card + 50, `the card moved (${s1.card} -> ${s2.card})`);
+  await ctx.close();
+});
+
+await test("touch: a flick tosses the board, which glides on and stops by itself; a slow drag that stops before lifting does not", async () => {
+  const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, hasTouch: true, isMobile: true });
+  const page = await ctx.newPage(); page.setDefaultTimeout(8000);
+  await page.goto(`${URL}/?u=toss${Date.now().toString(36)}`);
+  await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live");
+  const cdp = await ctx.newCDPSession(page), touch = (type: string, pts: any[]) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: pts });
+  const x = () => page.evaluate(() => (window as any).__view().x);
+  const swipe = async (still: boolean) => {
+    await touch("touchStart", [{ x: 150, y: 400, id: 1 }]);
+    for (let i = 1; i <= 8; i++) { await touch("touchMove", [{ x: 150 + i * 20, y: 400, id: 1 }]); await page.waitForTimeout(16); }
+    if (still) await page.waitForTimeout(250);
+    await touch("touchEnd", []);
+  };
+  const x0 = await x(); await swipe(false); const x1 = await x(); await page.waitForTimeout(150); const x2 = await x();
+  assert.ok(x1 - x0 > 100, "the finger moved the board"); assert.ok(x2 - x1 > 20, `the board kept gliding after release (${x1} -> ${x2})`);
+  await page.waitForTimeout(2500); const x3 = await x(); await page.waitForTimeout(300);
+  assert.equal(await x(), x3, "and it came to a stop");
+  const y0 = await x(); await swipe(true); const y1 = await x(); await page.waitForTimeout(300);
+  assert.equal(await x(), y1, `resting before lifting: no toss (moved ${y1 - y0})`);
   await ctx.close();
 });
 

@@ -31,7 +31,7 @@
   [hidden] { display: none !important; }
   body {
     /* the page itself never scrolls or resizes: fixed to the visible screen (dvh: the height WITHOUT Safari's collapsing toolbar games), so a focused field cannot push the bars away */
-    margin: 0; position: fixed; left: 0; top: 0; width: 100%; height: 100vh; height: 100dvh; overflow: hidden; overscroll-behavior: none; color: var(--ink); user-select: none; -webkit-text-size-adjust: 100%;
+    margin: 0; position: fixed; left: 0; top: 0; width: 100%; height: 100vh; height: 100dvh; overflow: hidden; overscroll-behavior: none; color: var(--ink); user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-text-size-adjust: 100%;
     font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
     background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 24px 24px;
   }
@@ -80,8 +80,8 @@
   body.nodots { background-image: none !important; }
   .card.held, .card.dragging { box-shadow: var(--shadow-lift); cursor: grabbing; transition: none; }
   .card.selected, .card:has(> [contenteditable=true]) { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .card [contenteditable=true] { user-select: text; cursor: text; outline: none; }
-  .card input { user-select: text; }
+  .card [contenteditable=true] { user-select: text; -webkit-user-select: text; cursor: text; outline: none; }
+  .card input { user-select: text; -webkit-user-select: text; }
   .grip { position: absolute; }
   .grip.e { top: 0; right: -5px; width: 10px; height: 100%; cursor: ew-resize; }
   .grip.s { left: 0; bottom: -5px; width: 100%; height: 10px; cursor: ns-resize; }
@@ -1678,11 +1678,12 @@ const fingers = new Map();
 function startTouchView(e) {
   fingers.set(e.pointerId, [e.clientX, e.clientY]);
   if (fingers.size > 1) return; // the second finger is picked up by the handlers the first one installed
-  let moved = false;
+  let moved = false, pinched = false, samples = []; // samples: where the finger was over the last moments, for the toss
   const move = (m) => {
     const old = fingers.get(m.pointerId); if (!old) return;
     const before = [...fingers.values()]; fingers.set(m.pointerId, [m.clientX, m.clientY]);
     const now = [...fingers.values()]; moved = true;
+    if (now.length > 1) pinched = true; else samples.push({ t: performance.now(), x: m.clientX, y: m.clientY });
     const mid = (f) => [(f[0][0] + f[f.length - 1][0]) / 2, (f[0][1] + f[f.length - 1][1]) / 2];
     const [bx, by] = mid(before), [nx, ny] = mid(now);
     view.x += nx - bx; view.y += ny - by;
@@ -1696,10 +1697,30 @@ function startTouchView(e) {
     fingers.delete(u.pointerId);
     if (fingers.size) return;
     removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", up);
-    if (!moved) setSel([]);
+    if (!moved) return setSel([]);
+    const now = performance.now(), recent = samples.filter((s) => now - s.t < 100); // a finger that stopped before lifting leaves no toss
+    if (u.type === "pointerup" && !pinched && recent.length > 1) {
+      const a = recent[0], b = recent[recent.length - 1], dt = Math.max(b.t - a.t, 1), cap = (v) => clamp(v, -5, 5);
+      glide(cap((b.x - a.x) / dt), cap((b.y - a.y) / dt));
+    }
   };
   addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", up);
-}function startPan(e) {
+}
+// tossing the board: it keeps moving with the speed the finger had and slows down smoothly (about a second); any touch stops it
+let glideId = 0;
+addEventListener("pointerdown", () => cancelAnimationFrame(glideId), true);
+function glide(vx, vy) { // px per ms
+  if (Math.hypot(vx, vy) < 0.15) return;
+  const board = B; let last = performance.now();
+  const step = (t) => {
+    const dt = Math.min(t - last, 50); last = t;
+    vx *= Math.exp(-dt / 325); vy *= Math.exp(-dt / 325);
+    if (B !== board || Math.hypot(vx, vy) < 0.02) return;
+    view.x += vx * dt; view.y += vy * dt; applyView(); glideId = requestAnimationFrame(step);
+  };
+  glideId = requestAnimationFrame(step);
+}
+function startPan(e) {
   let x = e.clientX, y = e.clientY;
   const move = (m) => { view.x += m.clientX - x; view.y += m.clientY - y; x = m.clientX; y = m.clientY; applyView(); };
   const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); };
@@ -2082,7 +2103,10 @@ function canvasMenu(pt) {
     "-", { label: "Change Board Background", run: () => { $("bgpop").hidden = false; applyBg(); } }, { label: "Present", run: () => present(true) },
   ];
 }
+// touch: a finger resting on a card (to drag it) must not select the text under it, nor pop up the card menu that a long press would open
+addEventListener("selectstart", (e) => { if (document.querySelector(".card.held, .card.dragging")) e.preventDefault(); });
 addEventListener("contextmenu", (e) => {
+  if (document.querySelector(".card.held, .card.dragging")) return void e.preventDefault();
   if (e.target.closest("input, textarea, [contenteditable=true], #tools, #top, #trash, #zoom, #picker, #cmenu, #ctx, #expop, #impdlg, #bgpop, #outline, #bpanel")) return; // the browser's own menu there (spell check, paste)
   e.preventDefault(); closeMenu();
   if (tool) return;
