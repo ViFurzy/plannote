@@ -329,3 +329,51 @@ console.log("ok: home boards, no squatting, acl grant/revoke, READ/WRITE/ADMIN, 
   hc.close(); await hs.close(); rmSync(hdir, { recursive: true });
   console.log("ok: hardening (security headers, origin check, size caps, flood limit, upload limit, orphan sweep, backups)");
 }
+
+// accounts: sign up / log in, the cookie is the identity, a nested board can be shared by username
+{
+  const as = createServer(3992, ":memory:", { accounts: true }), base = "http://localhost:3992";
+  const post = (p: string, body: unknown, cookie = "") => fetch(base + p, { method: "POST", headers: { "content-type": "application/json", cookie }, body: JSON.stringify(body) });
+  const cookieOf = (r: Response) => r.headers.get("set-cookie")!.split(";")[0];
+  const login = async (name: string) => cookieOf(await post("/api/auth/login", { name, password: "correct horse" }));
+  const sock = (cookie: string) => new Promise<any>((res, no) => { const c = io("ws://localhost:3992", { transports: ["websocket"], extraHeaders: { cookie } }); c.on("connect", () => res(c)); c.on("connect_error", no); });
+
+  assert.equal((await fetch(base + "/")).headers.get("content-type"), "text/html");
+  assert.match(await (await fetch(base + "/")).text(), /<form id="f">/, "no session: the login page");
+  assert.equal((await fetch(base + "/api/boards?ids=x", { headers: { "x-user-id": "alice" } })).status, 401, "a claimed id means nothing with accounts on");
+  await assert.rejects(sock(""), "no session, no socket");
+  assert.equal((await post("/api/auth/signup", { name: "alice", password: "short" })).status, 400, "password too short");
+  assert.equal((await post("/api/auth/signup", { name: "Al ice", password: "correct horse" })).status, 400, "bad name");
+  const signup = await post("/api/auth/signup", { name: "Alice", password: "correct horse" });
+  assert.equal(signup.status, 200); assert.match(signup.headers.get("set-cookie")!, /HttpOnly; SameSite=Strict/);
+  assert.equal((await post("/api/auth/signup", { name: "alice", password: "another one" })).status, 409, "names are not case sensitive");
+  assert.equal((await post("/api/auth/login", { name: "alice", password: "wrong password" })).status, 401);
+  assert.equal((await post("/api/auth/login", { name: "nobody", password: "correct horse" })).status, 401);
+  assert.equal((await post("/api/auth/signup", { name: "bob", password: "correct horse" })).status, 200);
+  const [ca, cb] = [await login("alice"), await login("bob")];
+  assert.equal(await (await fetch(base + "/api/auth/me", { headers: { cookie: ca } })).json().then((j: any) => j.user), "alice");
+  assert.match(await (await fetch(base + "/", { headers: { cookie: ca } })).text(), /window\.ACCOUNT="alice"/, "the app is served with the name");
+
+  const get = (p: string, cookie: string) => fetch(base + p, { headers: { cookie } }).then(async (r) => ({ status: r.status, body: (await r.json()) as any }));
+  const aHome = (await get("/api/users/me/app-init", ca)).body.homeBoardId as string;
+  const [sa, sb] = [await sock(ca), await sock(cb)];
+  const sub = { id: "shared1", elementType: "BOARD", location: { parentId: aHome, section: "CANVAS", position: { score: 1, x: 0, y: 0 } }, content: { title: "Together" }, meta: { versionId: "v1", modifiedTime: 1 } };
+  assert.equal(await act(sa, { type: "ELEMENT_CREATE", ...sub }), 200);
+  assert.equal((await get("/api/boards?ids=shared1", cb)).status, 403, "not shared yet");
+  assert.equal(await act(sb, { type: "ELEMENT_UPDATE_ACL", id: "shared1", acl: { bob: 7 } }), 403, "no self-grant");
+  assert.equal(await act(sa, { type: "ELEMENT_UPDATE_ACL", id: "shared1", acl: { ghost: R | W } }), 404, "unknown user");
+  assert.equal(await act(sa, { type: "ELEMENT_UPDATE_ACL", id: aHome, acl: { bob: R } }), 200, "(home can be shared at the protocol level; the app hides it)");
+  assert.equal(await act(sa, { type: "ELEMENT_UPDATE_ACL", id: aHome, acl: { bob: 0 } }), 200);
+  const shared = await emit(sa, "action", { type: "ELEMENT_UPDATE_ACL", id: "shared1", acl: { bob: R | W } });
+  assert.deepEqual(shared, { status: 200, acl: { alice: 7, bob: 3 } }, "the board got its own list, owner first");
+  assert.equal((await get("/api/boards?ids=shared1", cb)).status, 200, "bob can read the shared board");
+  assert.equal((await get("/api/boards?ids=" + aHome, cb)).status, 403, "but not alice's Home");
+  assert.equal((await get("/api/tree", cb)).body.boards.some((b: any) => b.id === "shared1"), true, "it shows in bob's boards");
+  assert.equal(await join(sb, "shared1"), 200);
+  const note = { id: "n-shared", elementType: "CARD", location: { parentId: "shared1", section: "CANVAS", position: { score: 1, x: 0, y: 0 } }, content: { textContent: "hi" }, meta: { versionId: "v1", modifiedTime: 1 } };
+  assert.equal(await act(sb, { type: "ELEMENT_CREATE", ...note }), 200, "bob can edit it");
+  await post("/api/auth/logout", {}, cb);
+  assert.equal((await get("/api/auth/me", cb)).status, 401, "logged out");
+  sa.close(); sb.close(); await as.close();
+  console.log("ok: accounts (sign up, log in, cookie identity, sharing a nested board)");
+}

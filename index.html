@@ -315,11 +315,15 @@
   #expop .item:focus-visible, #setpop .item:focus-visible { outline: 2px solid var(--accent); }
   #expop button.item[disabled] { opacity: .45; cursor: default; pointer-events: none; }
   #exmsg { min-height: 1.45em; padding: 4px 6px 0; }
-  #impdlg { position: fixed; top: 110px; left: 50%; transform: translateX(-50%); z-index: 12; width: 400px; max-width: calc(100vw - 24px); padding: 14px; display: grid; gap: 12px;
+  #impdlg, #sharedlg { position: fixed; top: 110px; left: 50%; transform: translateX(-50%); z-index: 12; width: 400px; max-width: calc(100vw - 24px); padding: 14px; display: grid; gap: 12px;
             background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow-lift); }
-  #impdlg[hidden] { display: none; }
-  #impdlg .ph { font-weight: 600; }
-  #impdlg .prow .btn { width: auto; height: auto; padding: 5px 16px; }
+  #impdlg[hidden], #sharedlg[hidden] { display: none; }
+  #impdlg .ph, #sharedlg .ph { font-weight: 600; }
+  #impdlg .prow .btn, #sharedlg .prow .btn { width: auto; height: auto; padding: 5px 16px; }
+  #sharedlg .prow, #sharedlg .share-row { display: flex; align-items: center; gap: 8px; }
+  #sharedlg .share-row span:first-child { flex: 1; overflow-wrap: anywhere; }
+  #sharedlg input, #sharedlg select { font: inherit; font-size: 16px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); min-width: 0; }
+  #sharedlg input { flex: 1; }
   #impdrop { display: grid; gap: 4px; justify-items: center; text-align: center; padding: 22px 14px; border: 1px dashed var(--line); border-radius: var(--r); cursor: pointer; }
   #impdrop:hover, #impdrop.over { border-color: var(--accent); background: var(--accent-soft); }
   #impinfo { white-space: pre-line; max-height: 40vh; overflow: auto; color: var(--ink); }
@@ -461,6 +465,8 @@
   <button class="item" id="themeBtn" title="Light or dark (Ctrl+Shift+D)">Theme: light / dark</button>
   <button class="item" id="expBtn" title="Export this board">Export</button>
   <button class="item" id="impBtn" title="Import a board">Import</button>
+  <button class="item" id="shareBtn" title="Choose who can open and edit this board">Share this board</button>
+  <button class="item" id="outBtn" title="Log out" hidden></button>
 </div>
 <div class="pill" id="bgpop" hidden>
   <span class="lab">Pattern</span>
@@ -494,6 +500,13 @@
   <div id="impinfo" class="lab"></div>
   <label id="impopt" class="lab" hidden><input type="checkbox" id="impsub" name="sub" checked> Treat extra top-level headings as sub-boards</label>
   <div class="prow"><button class="btn" id="impgo" disabled>Import</button><button class="btn" id="impno">Close</button></div>
+</div>
+<div id="sharedlg" hidden role="dialog" aria-label="Share">
+  <div class="ph" id="sharetitle">Share</div>
+  <div id="sharelist"></div>
+  <div class="prow"><input id="shareuser" name="shareuser" placeholder="Their username" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="Username to share with"><select id="sharepm" aria-label="Permission"><option value="3">Can edit</option><option value="1">Can view</option></select><button class="btn" id="shareadd">Add</button></div>
+  <div id="sharemsg" class="lab"></div>
+  <div class="prow"><button class="btn" id="sharelink" title="They need an account here and to be added above">Copy link</button><button class="btn" id="shareclose">Close</button></div>
 </div>
 <div id="picker" hidden role="dialog" aria-label="Colour picker">
   <div class="ph">Colour</div>
@@ -554,8 +567,8 @@
 <script>
 const sid = Math.random().toString(36).slice(2, 8);
 let HOME, B = "", joined = null, n = 0, els = {}; // HOME = this user's root board, from app-init
-// ponytail: identity is a self-declared id (?u=name, else a random one kept in localStorage); real login would replace this
-const uid = new URLSearchParams(location.search).get("u") ?? (localStorage.uid ??= "u" + Math.random().toString(36).slice(2, 8));
+// the server puts the logged-in name in window.ACCOUNT; without accounts (tests, local use) identity is a self-declared id (?u=name, else a random one kept in localStorage)
+const uid = window.ACCOUNT ?? new URLSearchParams(location.search).get("u") ?? (localStorage.uid ??= "u" + Math.random().toString(36).slice(2, 8));
 const s = io({ transports: ["websocket"], auth: { userId: uid } });
 const send = (a) => new Promise((r) => s.emit("action", { ...a, channels: [B + "-LIVE"] }, r)); // server ignores channels and derives rooms
 const $ = (id) => document.getElementById(id);
@@ -2078,6 +2091,34 @@ $("themeBtn").onclick = toggleTheme;
 $("gearBtn").onclick = () => { $("bgpop").hidden = $("expop").hidden = true; $("setpop").hidden = !$("setpop").hidden; };
 $("setpop").onclick = (e) => { if (e.target.closest(".item")) $("setpop").hidden = true; };
 
+// --- accounts and sharing: the member list is the acl the server keeps on the board; a nested board gets its own the first time it is shared ---
+const sharedlg = $("sharedlg"), PERM = { 7: "Owner", 3: "Can edit", 1: "Can view" };
+if (window.ACCOUNT) {
+  $("outBtn").hidden = false; $("outBtn").textContent = "Log out (" + uid + ")";
+  $("outBtn").onclick = async () => { await fetch("/api/auth/logout", { method: "POST" }).catch(() => {}); location.reload(); };
+}
+function renderShare() {
+  const acl = els[B]?.acl ?? { [uid]: 7 }, mine = (acl[uid] & 4) === 4 && B !== HOME; // sharing Home would share every board in it
+  $("sharetitle").textContent = "Share: " + ($("crumbs").lastElementChild?.textContent || "board");
+  $("shareadd").disabled = $("shareuser").disabled = $("sharepm").disabled = !mine;
+  $("sharemsg").textContent = B === HOME ? "Open a board inside Home to share it." : "";
+  $("sharelist").replaceChildren(...Object.entries(acl).map(([name, p]) => {
+    const row = h("div", "share-row"); row.append(h("span", "", name === uid ? name + " (you)" : name), h("span", "lab", PERM[p] ?? "Custom"));
+    if (mine && p !== 7) { const x = h("button", "btn", "Remove"); x.onclick = () => setShare(name, 0); row.append(x); }
+    return row;
+  }));
+}
+async function setShare(name, perm) {
+  const r = await send({ type: "ELEMENT_UPDATE_ACL", id: B, acl: { [name]: perm } });
+  if (r.status === 200) { els[B].acl = r.acl; renderShare(); }
+  else $("sharemsg").textContent = r.status === 404 ? `Nobody is called ${name}.` : r.status === 403 ? "Only the owner can change who has access." : "Could not share.";
+}
+$("shareBtn").onclick = () => { sharedlg.hidden = !sharedlg.hidden; if (!sharedlg.hidden) renderShare(); };
+$("shareclose").onclick = () => (sharedlg.hidden = true);
+$("shareadd").onclick = () => { const n = $("shareuser").value.trim().toLowerCase(); if (n) { setShare(n, +$("sharepm").value); $("shareuser").value = ""; } };
+$("shareuser").onkeydown = (e) => { e.stopPropagation(); if (e.key === "Enter") $("shareadd").click(); else if (e.key === "Escape") sharedlg.hidden = true; };
+$("sharelink").onclick = async () => { try { await navigator.clipboard.writeText(location.origin + "/#" + B); toast("Link copied"); } catch { flash("Could not copy"); } };
+
 // --- phones ---
 // The board has its own pan and zoom, so the browser must never zoom the page: iOS ignores touch-action for pinches, hence these (and maximum-scale in the viewport tag).
 for (const g of ["gesturestart", "gesturechange", "gestureend"]) document.addEventListener(g, (e) => e.preventDefault());
@@ -2334,7 +2375,7 @@ async function load() {
 
 async function crumbs() {
   const chain = []; let cur = B;
-  while (cur !== HOME) { const e = (await fetchBoards([cur]))[cur]; if (!e) break; chain.unshift(e); cur = e.location.parentId; }
+  while (cur !== HOME) { const e = (await fetchBoards([cur]).catch(() => ({})))[cur]; if (!e) break; chain.unshift(e); cur = e.location.parentId; } // a board shared with you hangs under someone else's Home: the trail ends where your access does
   const links = [[HOME, "Home"], ...chain.map((e) => [e.id, e.content.title || DEFAULT.BOARD])];
   $("crumbs").replaceChildren(...links.flatMap(([id, t], i) => [...(i ? [" / "] : []), Object.assign(document.createElement("a"), { href: "#" + id, textContent: t })]));
 }
@@ -2346,7 +2387,7 @@ async function enter() {
   if (next !== B) {
     $("canvas").innerHTML = ""; els = {}; setSel([]); counts = {}; /* the option panels belong to the selection, so they go with it */ history.undo = []; history.redo = []; syncHistory();
     view = loadView(next); applyView(false); // not saved: B is still the old board here, and a pending save for it must not be replaced
-    $("q").value = ""; runSearch(); $("bgpop").hidden = true;
+    $("q").value = ""; runSearch(); $("bgpop").hidden = true; sharedlg.hidden = true;
   } // a reconnect keeps the canvas and the view; load() below reconciles it with the server
   B = next;
   if (ack.status !== 200) { $("canvas").innerHTML = ""; els = {}; status("bad", `No access to ${next} as ${uid}`); return; }

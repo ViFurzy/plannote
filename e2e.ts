@@ -1015,6 +1015,46 @@ await test("phone: one row top bar, nothing wider than the screen, tap targets 4
   await ctx.close();
 });
 
+// accounts: a second server with logins on; two browsers (alice, bob) go through the login page and the Share dialog
+await test("accounts: the login page, sign up, log out and in; sharing a board by username gives that user access", async () => {
+  const as = createServer(3993, ":memory:", { accounts: true }), AURL = "http://localhost:3993";
+  const ctxs: BrowserContext[] = [];
+  const open = async () => { const c = await browser.newContext({ viewport: { width: 1400, height: 900 } }); ctxs.push(c); const p = await c.newPage(); p.setDefaultTimeout(8000); await p.goto(AURL + "/"); return p; };
+  const live = (p: Page) => p.waitForFunction(() => (document.getElementById("st") as HTMLElement)?.dataset.state === "live");
+  const form = async (p: Page, name: string, pw: string) => { await p.fill("#name", name); await p.fill("#pw", pw); await p.click("#go"); };
+  try {
+    const alice = await open(), bob = await open();
+    await alice.waitForSelector("#f");
+    await alice.click("#swap"); await form(alice, "alice", "correct horse"); await live(alice);
+    assert.equal(await alice.evaluate(() => (window as any).ACCOUNT), "alice");
+    await alice.click("#gearBtn"); await alice.click("#outBtn");
+    await alice.waitForSelector("#f");
+    await form(alice, "alice", "wrong password");
+    await alice.waitForFunction(() => /Wrong name or password/.test(document.getElementById("err")!.textContent!));
+    await form(alice, "alice", "correct horse"); await live(alice);
+
+    await bob.click("#swap"); await form(bob, "bob", "correct horse"); await live(bob);
+
+    await alice.click("#brd"); await alice.keyboard.type("Together"); await alice.keyboard.press("Escape"); await settle(alice, 600);
+    await alice.locator("#canvas > .board").dblclick(); await settle(alice, 1500);
+    await add(alice, "note", "from alice");
+    const url = alice.url();
+
+    await alice.click("#gearBtn"); await alice.click("#shareBtn");
+    await alice.fill("#shareuser", "ghost"); await alice.click("#shareadd");
+    await alice.waitForFunction(() => /Nobody is called ghost/.test(document.getElementById("sharemsg")!.textContent!));
+    await alice.fill("#shareuser", "bob"); await alice.click("#shareadd");
+    await alice.waitForFunction(() => /bob/.test(document.getElementById("sharelist")!.textContent!));
+
+    await bob.goto(url); await live(bob); await settle(bob, 800);
+    assert.ok((await model(bob)).some((e) => e.content.textContent === "from alice"), "bob sees alice's note on the shared board");
+    await add(bob, "note", "from bob"); await settle(alice, 600);
+    assert.ok((await model(alice)).some((e) => e.content.textContent === "from bob"), "and alice sees bob's note live");
+    await bob.click("#gearBtn"); await bob.click("#shareBtn");
+    assert.equal(await bob.locator("#shareadd").isDisabled(), true, "bob can edit but not change who has access");
+  } finally { for (const c of ctxs) await c.close(); await as.close(); }
+});
+
 await browser.close(); await srv.close(); pages.close(); rmSync(shots, { recursive: true, force: true });
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed`);

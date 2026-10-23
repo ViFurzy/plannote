@@ -1,7 +1,7 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
 import { createServer as createHttp, type IncomingMessage, type ServerResponse } from "node:http";
 import { Server } from "socket.io";
 import { unfurl, fetchImage } from "./unfurl.ts";
@@ -49,10 +49,10 @@ const MAGIC: Record<string, (b: Buffer) => boolean> = {
 
 type Result = { status: number; boards?: string[]; out?: unknown; ack?: Record<string, unknown> };
 
-// ponytail: identity is whatever userId the client claims (socket auth / x-user-id header) — this is authorization only.
-// Real authentication = verify a session (e.g. better-auth) where validUser() is called.
+// Identity: with opts.accounts it is the user of the session cookie (sign up / log in below). Without it (tests, local use) it is
+// whatever userId the client claims (socket auth / x-user-id header): authorization only, no authentication.
 // SQLite is write-through: the Map serves reads, every applied change is saved as a JSON row.
-export function createServer(port: number, dbFile = ":memory:", opts: { allowPrivateUnfurl?: boolean; host?: string; origins?: string[]; https?: boolean; backupDir?: string } = {}) {
+export function createServer(port: number, dbFile = ":memory:", opts: { allowPrivateUnfurl?: boolean; host?: string; origins?: string[]; https?: boolean; backupDir?: string; accounts?: boolean } = {}) {
   // link previews: ten minutes of cache, and at most 20 previews a minute per user
   const previews = new Map<string, { at: number; data: unknown }>(), recent = new Map<string, number[]>(), uploads = new Map<string, number[]>(), fetched = new Map<string, number[]>(), searched = new Map<string, number[]>();
   const db = new DatabaseSync(dbFile);
@@ -61,6 +61,8 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
   db.exec("CREATE TABLE IF NOT EXISTS media (id TEXT PRIMARY KEY, mime TEXT NOT NULL, data BLOB NOT NULL, owner TEXT NOT NULL)");
   if (!(db.prepare("PRAGMA table_info(media)").all() as { name: string }[]).some((c) => c.name === "at")) db.exec("ALTER TABLE media ADD COLUMN at INTEGER"); // upload time, for the orphan sweep
   db.prepare("UPDATE media SET at = ? WHERE at IS NULL").run(Date.now());
+  db.exec("CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY, pw TEXT NOT NULL)");
+  db.exec("CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user TEXT NOT NULL, at INTEGER NOT NULL)"); // token = sha256 of the cookie value
   const insertMedia = db.prepare("INSERT INTO media (id, mime, data, owner, at) VALUES (?, ?, ?, ?, ?)");
   const getMedia = db.prepare("SELECT mime, data FROM media WHERE id = ?");
   const upsert = db.prepare("INSERT OR REPLACE INTO elements (id, json) VALUES (?, ?)");
@@ -123,6 +125,25 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
     const m = /^(.+)-LIVE$/.exec(channel);
     return m ? can(user, m[1], READ) : channel === `${user}-PERSONAL`;
   }
+
+  // --- accounts: scrypt password hashes, an opaque session cookie (only its sha256 is stored) ---
+  const SESSION_MS = 30 * 86_400_000, tries = new Map<string, number[]>();
+  const sha = (t: string) => createHash("sha256").update(t).digest("hex");
+  const scryptOf = (pw: string, salt: Buffer) => new Promise<Buffer>((ok, no) => scrypt(pw, salt, 32, (e, k) => (e ? no(e) : ok(k))));
+  const throttled = (key: string, max: number) => { // at most `max` tries a minute per key
+    const now = Date.now(), mine = (tries.get(key) ?? []).filter((t) => now - t < 60_000);
+    tries.set(key, [...mine, now]);
+    if (tries.size > 5000) tries.delete(tries.keys().next().value!);
+    return mine.length >= max;
+  };
+  const sessionUser = (cookie?: string) => {
+    const token = /(?:^|; )sid=([\w-]{43})(?:;|$)/.exec(cookie ?? "")?.[1];
+    const row = token ? (db.prepare("SELECT user, at FROM sessions WHERE token = ?").get(sha(token)) as { user: string; at: number } | undefined) : undefined;
+    return row && Date.now() - row.at < SESSION_MS ? row.user : undefined;
+  };
+  const userExists = (name: string) => !!db.prepare("SELECT 1 FROM users WHERE name = ?").get(name);
+  // who is asking: the session's user with accounts, else the claimed id
+  const identify = (cookie: string | undefined, claimed: unknown) => (opts.accounts ? sessionUser(cookie) : validUser(claimed) ? claimed : undefined);
 
   function apply(a: Action, user: string): Result {
     if (a.type === "ELEMENT_CREATE") {
@@ -195,13 +216,18 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
       const el = els.get(a.id);
       if (!el) return { status: 404 };
       if (!can(user, a.id, ADMIN)) return { status: 403 };
-      if (!el.acl || Object.entries(a.acl).some(([u, p]) => !validUser(u) || !Number.isInteger(p) || p < 0 || p > OWNER)) return { status: 400 };
+      if (!isObject(a.acl) || Object.entries(a.acl).some(([u, p]) => !validUser(u) || !Number.isInteger(p) || p < 0 || p > OWNER)) return { status: 400 };
+      if (opts.accounts && Object.entries(a.acl).some(([u, p]) => p && !userExists(u))) return { status: 404 }; // no sharing with a name nobody has
+      if (!el.acl) { // sharing a nested board gives it its own list (nearest acl wins), starting with whoever is sharing
+        if (el.elementType !== "BOARD") return { status: 400 };
+        el.acl = { [user]: OWNER };
+      }
       for (const [u, p] of Object.entries(a.acl)) p ? (el.acl[u] = p) : delete el.acl[u];
       save(el);
       // revoked users stop receiving broadcasts immediately
       for (const sk of io.sockets.sockets.values())
         for (const r of sk.rooms) { const m = /^(.+)-LIVE$/.exec(r); if (m && !can(sk.data.userId, m[1], READ)) sk.leave(r); }
-      return { status: 200 };
+      return { status: 200, ack: { acl: el.acl } };
     }
     return { status: 404 };
   }
@@ -243,7 +269,14 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
     if (opts.https || req.headers["x-forwarded-proto"] === "https") res.setHeader("strict-transport-security", "max-age=31536000");
     if (u.pathname === "/favicon.ico") return void res.writeHead(204).end();
     if (u.pathname === "/healthz") return void res.writeHead(200, { "content-type": "text/plain" }).end("ok");
-    if (u.pathname === "/") return void res.writeHead(200, { "content-type": "text/html" }).end(readFileSync(new URL("./index.html", import.meta.url)));
+    if (u.pathname === "/") {
+      const me = opts.accounts ? sessionUser(req.headers.cookie) : undefined;
+      res.setHeader("cache-control", "no-store"); // the same address is the login page or the app, depending on the session
+      if (opts.accounts && !me) return void res.writeHead(200, { "content-type": "text/html" }).end(readFileSync(new URL("./login.html", import.meta.url)));
+      const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+      // the user name was checked against the sign-up pattern, so it is safe inside a script
+      return void res.writeHead(200, { "content-type": "text/html" }).end(me ? html.replace('<script src="/socket.io/socket.io.js">', `<script>window.ACCOUNT=${JSON.stringify(me)}</script>$&`) : html);
+    }
     if (u.pathname === "/portable.js") return void res.writeHead(200, { "content-type": "text/javascript" }).end(readFileSync(new URL("./portable.js", import.meta.url))); // export / import
     const reply = (status: number, body: unknown = {}) => void res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));
     // media ids are unguessable (a capability URL): <img> cannot send our identity header, so reads are public by id
@@ -253,8 +286,45 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
       if (!row) return reply(404);
       return void res.writeHead(200, { "content-type": row.mime, "x-content-type-options": "nosniff", "content-security-policy": "default-src 'none'; sandbox", "cache-control": "private, max-age=31536000, immutable" }).end(row.data);
     }
-    const user = req.headers["x-user-id"];
-    if (!validUser(user)) return reply(401);
+    if (u.pathname.startsWith("/api/auth/")) {
+      if (!opts.accounts) return reply(404); // the client then falls back to a self-declared id
+      const cookie = (token: string, maxAge: number) => `sid=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${opts.https || req.headers["x-forwarded-proto"] === "https" ? "; Secure" : ""}`;
+      if (u.pathname === "/api/auth/me") { const me = sessionUser(req.headers.cookie); return me ? reply(200, { user: me }) : reply(401); }
+      if (req.method !== "POST") return reply(405);
+      if (u.pathname === "/api/auth/logout") {
+        const token = /(?:^|; )sid=([\w-]{43})/.exec(req.headers.cookie ?? "")?.[1];
+        if (token) db.prepare("DELETE FROM sessions WHERE token = ?").run(sha(token));
+        res.setHeader("set-cookie", cookie("", 0));
+        return reply(200);
+      }
+      const signup = u.pathname === "/api/auth/signup";
+      if (!signup && u.pathname !== "/api/auth/login") return reply(404);
+      let raw = "";
+      req.on("data", (c: Buffer) => { raw += c; if (raw.length > 2000) req.destroy(); });
+      req.on("end", async () => {
+        try {
+          const b = JSON.parse(raw), name = String(b?.name ?? "").trim().toLowerCase(), pw = String(b?.password ?? "");
+          if (!/^[a-z0-9_-]{3,32}$/.test(name) || pw.length < 8 || pw.length > 200) return reply(400, { error: "Name: 3-32 letters, digits, - or _. Password: at least 8 characters." });
+          if (throttled(signup ? "signup:" + req.socket.remoteAddress : "login:" + name, 10)) return reply(429, { error: "Too many tries, wait a minute." });
+          if (signup) {
+            const salt = randomBytes(16);
+            if (userExists(name)) return reply(409, { error: "That name is taken." });
+            db.prepare("INSERT INTO users (name, pw) VALUES (?, ?)").run(name, salt.toString("hex") + ":" + (await scryptOf(pw, salt)).toString("hex"));
+          } else {
+            const row = db.prepare("SELECT pw FROM users WHERE name = ?").get(name) as { pw: string } | undefined, [salt, want] = (row?.pw ?? "00:00").split(":");
+            const got = await scryptOf(pw, Buffer.from(salt, "hex")); // computed even for an unknown name, so the answer takes as long
+            if (!row || !timingSafeEqual(got, Buffer.from(want, "hex"))) return reply(401, { error: "Wrong name or password." });
+          }
+          const token = randomBytes(32).toString("base64url");
+          db.prepare("INSERT INTO sessions (token, user, at) VALUES (?, ?, ?)").run(sha(token), name, Date.now());
+          res.setHeader("set-cookie", cookie(token, SESSION_MS / 1000));
+          reply(200, { user: name });
+        } catch { reply(400, { error: "Bad request." }); }
+      });
+      return;
+    }
+    const user = identify(req.headers.cookie, req.headers["x-user-id"]);
+    if (!user) return reply(401);
     if (u.pathname === "/api/media" && req.method === "POST") return upload(req, res, user);
     if (u.pathname === "/api/users/me/app-init") return reply(200, { homeBoardId: homeOf(user) });
     if (u.pathname === "/api/tree") { // every board this user can read (not in a Trash), for the boards panel: [{id, title, parent, icon, color}]
@@ -356,8 +426,8 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
   });
   http.listen(port, opts.host);
   io.use((s, next) => {
-    const userId = s.handshake.auth?.userId;
-    if (!validUser(userId)) return next(new Error("unauthorized"));
+    const userId = identify(s.handshake.headers.cookie, s.handshake.auth?.userId);
+    if (!userId) return next(new Error("unauthorized"));
     s.data.userId = userId;
     next();
   });
@@ -401,9 +471,10 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
     db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
     for (const old of readdirSync(opts.backupDir).filter((f) => /^boardsync-.*\.db$/.test(f)).sort().slice(0, -7)) rmSync(join(opts.backupDir, old));
   };
-  const timers = [setInterval(sweepMedia, 3_600_000), setInterval(backup, 6 * 3_600_000)];
+  const dropOldSessions = () => void db.prepare("DELETE FROM sessions WHERE at < ?").run(Date.now() - SESSION_MS);
+  const timers = [setInterval(sweepMedia, 3_600_000), setInterval(backup, 6 * 3_600_000), setInterval(dropOldSessions, 3_600_000)];
   timers.forEach((t) => t.unref());
-  sweepMedia(); backup();
+  sweepMedia(); backup(); dropOldSessions();
 
   // io.close() also closes the http server; resolves once the port is free
   return { els, sweepMedia, backup, close: () => new Promise<void>((done) => { timers.forEach(clearInterval); io.close(() => { db.close(); done(); }); }) };
@@ -412,6 +483,6 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
 if (process.argv[1]?.endsWith("server.ts")) {
   // configuration: PORT, HOST (default: all interfaces), DB, BACKUP_DIR, ORIGINS (extra allowed websocket origins, comma separated), HTTPS=1 behind a TLS proxy
   const env = process.env;
-  const s = createServer(Number(env.PORT ?? 3000), env.DB ?? "boardsync.db", { host: env.HOST, backupDir: env.BACKUP_DIR, origins: env.ORIGINS?.split(",").filter(Boolean), https: env.HTTPS === "1" });
+  const s = createServer(Number(env.PORT ?? 3000), env.DB ?? "boardsync.db", { host: env.HOST, backupDir: env.BACKUP_DIR, origins: env.ORIGINS?.split(",").filter(Boolean), https: env.HTTPS === "1", accounts: env.ACCOUNTS !== "0" }); // ACCOUNTS=0: the old self-declared ids
   for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => void s.close().then(() => process.exit(0))); // finish and flush the database before exiting
 }

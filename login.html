@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>boardsync: log in</title>
+<style>
+  :root { color-scheme: light dark; --bg: #eceef2; --surface: #fff; --ink: #161a21; --muted: #667085; --line: #d6dae3; --accent: #2f5bd8; --bad: #d4483b; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #101318; --surface: #1a1e25; --ink: #e7eaf0; --muted: #98a1b0; --line: #2c323c; --accent: #7d98ff; --bad: #ff7a6b; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100dvh; display: grid; place-items: center; background: var(--bg); color: var(--ink); font: 15px system-ui, sans-serif; }
+  form { width: min(360px, calc(100vw - 32px)); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 24px; display: grid; gap: 12px; }
+  h1 { margin: 0 0 4px; font-size: 20px; }
+  label { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
+  input { font: inherit; font-size: 16px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
+  button { font: inherit; padding: 10px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; cursor: pointer; }
+  button.link { background: none; color: var(--accent); padding: 4px; }
+  #err { color: var(--bad); min-height: 1.2em; font-size: 13px; }
+</style>
+</head>
+<body>
+<form id="f">
+  <h1 id="title">Log in</h1>
+  <label>Name<input id="name" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required minlength="3" maxlength="32"></label>
+  <label>Password<input id="pw" name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="200"></label>
+  <div id="err" role="alert"></div>
+  <button id="go">Log in</button>
+  <button type="button" class="link" id="swap">No account yet? Create one</button>
+</form>
+<script>
+let signup = false;
+const $ = (id) => document.getElementById(id);
+function mode(on) {
+  signup = on;
+  $("title").textContent = $("go").textContent = on ? "Create account" : "Log in";
+  $("swap").textContent = on ? "Have an account? Log in" : "No account yet? Create one";
+  $("pw").autocomplete = on ? "new-password" : "current-password";
+  $("err").textContent = "";
+}
+$("swap").onclick = () => mode(!signup);
+$("f").onsubmit = async (e) => {
+  e.preventDefault();
+  $("go").disabled = true;
+  const r = await fetch("/api/auth/" + (signup ? "signup" : "login"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: $("name").value, password: $("pw").value }) }).catch(() => null);
+  if (r?.ok) return location.reload(); // the page is now served with the session; a #board link is kept
+  $("err").textContent = r ? (await r.json().catch(() => ({}))).error || "Something went wrong." : "Could not reach the server.";
+  $("go").disabled = false;
+};
+</script>
+</body>
+</html>
