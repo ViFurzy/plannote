@@ -66,6 +66,8 @@
   #zreset { min-width: 52px; text-align: center; }
   #hint { display: none; position: fixed; inset: 0; place-content: center; text-align: center; color: var(--muted); pointer-events: none; }
   #canvas:empty + #hint { display: grid; }
+  #hint { font-size: 13px; line-height: 1.6; padding: 0 24px; } #hint .ht { display: none; }
+  @media (pointer: coarse) { #hint .hk { display: none; } #hint .ht { display: inline; } } /* touch screens: no keyboard shortcuts in the hint */
   #marquee { position: fixed; z-index: 8; pointer-events: none; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
   /* the zoomable layer: every card lives in here, positioned in board coordinates */
@@ -216,7 +218,7 @@
   /* the options panel, docked on the left next to the tools: text options while a note is edited, picture options for a picture, colours, lines, pen... */
   /* the options bar: ONE floating line under the top bar, centred. Each option group that applies to the selection sits side by side in it, split by hairlines;
      it is absent when nothing is selected, and scrolls sideways (no wrapping) when the screen is narrower than its content */
-  #ctx { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); z-index: 8; display: flex; align-items: center; gap: 0; padding: 4px 6px; max-width: calc(100vw - 16px); min-height: 44px; box-sizing: border-box;
+  #ctx { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); z-index: 8; display: flex; align-items: center; gap: 0; padding: 4px 6px; width: max-content; max-width: calc(100vw - 16px); min-height: 44px; box-sizing: border-box;
          background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); }
   #ctx:not(:has(> .pill:not([hidden]))) { display: none; }
   #ctx .pill { flex: 0 0 auto; flex-wrap: nowrap; gap: 4px; padding: 0 8px; background: none; border: 0; border-radius: 0; box-shadow: none; white-space: nowrap; align-items: center; }
@@ -376,7 +378,7 @@
   #outlineBtn.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
   /* touch: the board is moved by our own gestures (one finger pans, two pinch), so the browser must not scroll or zoom the page; lists that scroll say so */
   body { touch-action: none; }
-  #outline { touch-action: pan-y pinch-zoom; } #ctx, #bpanel, #expop, #setpop, #bgpop, #trash, #impdlg { touch-action: pan-y; } #tools { touch-action: pan-x pan-y; }
+  #outline { touch-action: pan-y pinch-zoom; } #bpanel, #expop, #setpop, #bgpop, #trash, #impdlg, #picker { touch-action: pan-y; } #ctx { touch-action: pan-x; } #tools { touch-action: pan-x pan-y; }
   /* iOS zooms the whole page into any field whose text is under 16px: the chrome's fields are 16px on touch screens (the board has its own zoom) */
   @media (pointer: coarse) { #search #q, #bpanel #bq, #picker #phex, #fmt .size #fsize { font-size: 16px; } }
   body.kb #tools { display: none; } /* the on-screen keyboard is up: the tool strip would only sit on top of it */
@@ -398,6 +400,7 @@
     #trash { left: 8px; right: 8px; width: auto; bottom: 84px; }
     #ctx { top: auto; bottom: calc(max(8px, env(safe-area-inset-bottom)) + 70px); } /* phone: the options bar sits above the tool strip, in reach of the thumb */
     #fmtPal { position: static; }
+    #picker { top: 8px; width: calc(100vw - 16px); max-height: calc(100vh - 16px); max-height: calc(100dvh - 16px); overflow-y: auto; box-sizing: border-box; }
     #bgpop, #setpop, #expop, #bpanel { max-width: calc(100vw - 16px); max-height: calc(100vh - 140px); max-height: calc(100dvh - 140px); overflow-y: auto; }
     #impdlg { top: 64px; }
     #outline { padding: 14px 12px 96px; } #bgpop .seg { flex-wrap: wrap; }
@@ -542,7 +545,7 @@
 <div class="pill" id="iconbar" hidden><span class="lab">Icon</span><div class="seg" data-prop="icon"></div></div>
 </div>
 <div id="canvas"></div>
-<div id="hint">Add a note, to-do, link, image, column or board from the toolbar.<br>Drag empty space to select cards. Scroll to pan, Ctrl+scroll to zoom. Double-click a card to edit it.<br>Ctrl+C, Ctrl+V and Ctrl+D copy, paste and duplicate; Alt-drag copies. Arrow keys nudge (Shift: further). Press / to search.</div>
+<div id="hint"><span class="hk">Add a note, to-do, link, image, column or board from the toolbar.<br>Drag empty space to select cards. Scroll to pan, Ctrl+scroll to zoom. Double-click a card to edit it.<br>Ctrl+C, Ctrl+V and Ctrl+D copy, paste and duplicate; Alt-drag copies. Arrow keys nudge (Shift: further). Press / to search.</span><span class="ht">Tap a tool or drag it onto the board.<br>Double-tap a card to edit or open it. One finger pans, two fingers zoom.</span></div>
 <div id="marquee" hidden></div>
 <div class="pill" id="zoom"><button class="btn" id="zfit" title="Fit all cards on screen (Shift+1)">Fit</button><button class="btn" id="zout" aria-label="Zoom out">-</button><button class="btn" id="zreset" title="Reset zoom">100%</button><button class="btn" id="zin" aria-label="Zoom in">+</button><button class="btn ic" id="outlineBtn" aria-label="Outline" title="This board as a list you can read, edit and copy"><svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r=".8"/><circle cx="4.5" cy="12" r=".8"/><circle cx="4.5" cy="18" r=".8"/></svg></button><button class="btn ic" id="presentBtn" aria-label="Full screen" title="Full screen without the toolbar (Esc to leave)"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button></div>
 <div id="trash"></div>
@@ -1324,6 +1327,7 @@ function moveIntoBoard(group, tile) {
   render(els[tile.id]); // the tile's count
 }
 const overTrash = (x, y) => document.elementsFromPoint(x, y).some((nd) => $("trashBtn").contains(nd));
+let lastTap = null; // the previous touch tap on a card, for double-tap
 let spaceDown = false, tool = null; // tool: "line" | "draw" while one of those is active
 const noNest = (g) => g.classList.contains("column") || g.classList.contains("line"); // these stay on the canvas
 
@@ -1346,7 +1350,7 @@ function wire(d) {
     if (e.target.classList.contains("h")) { handle = { which: e.target.classList.contains("h1") ? 1 : 2 }; return; } // a line's endpoint
     const mod = e.shiftKey || e.ctrlKey || e.metaKey, was = sel.has(d.id);
     if (!was) setSel(mod ? [...sel, d.id] : [d.id]);
-    drag = { sx: e.clientX, sy: e.clientY, moved: false, mod, was, alt: e.altKey }; // Alt held at the start: the drop makes a copy
+    drag = { sx: e.clientX, sy: e.clientY, moved: false, mod, was, alt: e.altKey, tg: e.target, touch: e.pointerType !== "mouse" }; // Alt held at the start: the drop makes a copy
   };
 
   d.onpointermove = (e) => {
@@ -1411,9 +1415,15 @@ function wire(d) {
       return;
     }
     if (!drag) return;
-    const { moved, mod, was, alt } = drag, group = drag.group; drag = null;
+    const { moved, mod, was, alt, tg, touch } = drag, group = drag.group; drag = null;
     $("trashBtn").classList.remove("drop"); mark(null);
     if (!moved) { // plain click: a modifier-click on a selected card deselects it; a click inside a group narrows the selection to it
+      // touch-action: none stops browsers sending dblclick for taps, so two quick taps on a card are turned into one here
+      if (touch) {
+        const now = Date.now(), prev = lastTap;
+        lastTap = { t: now, id: d.id, x: e.clientX, y: e.clientY };
+        if (prev && prev.id === d.id && now - prev.t < 400 && Math.hypot(e.clientX - prev.x, e.clientY - prev.y) < 30) { lastTap = null; return void openCard(tg); }
+      }
       if (mod && was) setSel([...sel].filter((id) => id !== d.id));
       else if (!mod && was && sel.size > 1) setSel([d.id]);
       return;
@@ -1447,13 +1457,13 @@ function wire(d) {
     const sel2 = getSelection(); sel2.removeAllRanges(); sel2.addRange(r);
   };
   d.startEdit = startEdit;
-  d.ondblclick = (e) => {
-    e.stopPropagation();
-    if (e.target.closest("a, input, textarea, button") || e.target.classList.contains("grip")) return;
+  const openCard = (tg) => {
+    if (tg.closest("a, input, textarea, button") || tg.classList.contains("grip")) return;
     if (type() === "BOARD") location.hash = d.id; // open it; F2 renames
     else if (type() === "IMAGE") startEdit(); // the caption
-    else if (type() === "CARD" || type() === "LINK" || type() === "SWATCH" || e.target.closest(".title")) startEdit();
+    else if (type() === "CARD" || type() === "LINK" || type() === "SWATCH" || tg.closest(".title")) startEdit();
   };
+  d.ondblclick = (e) => { e.stopPropagation(); openCard(e.target); };
 
   const value = () => (type() === "CARD" ? t.innerText : t.innerText.replace(/\s+/g, " ").trim());
   const flush = () => {

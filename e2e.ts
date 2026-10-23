@@ -977,6 +977,21 @@ await test("iPhone 14 Pro: the page never zooms or scrolls, touch fields are 16p
   await ctx.close();
 });
 
+await test("iPhone 14 Pro: the options bar stays inside the screen and scrolls sideways; the colour picker fits", async () => {
+  const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, hasTouch: true, isMobile: true });
+  const page = await ctx.newPage(); page.setDefaultTimeout(8000);
+  await page.goto(`${URL}/?u=bar${Date.now().toString(36)}`);
+  await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live");
+  await page.tap("#note"); await settle(page, 500);
+  const r = await page.evaluate(() => { const c = document.getElementById("ctx")!, b = c.getBoundingClientRect(); return { l: b.left, r: b.right, ta: getComputedStyle(c).touchAction, w: innerWidth }; });
+  assert.ok(r.l >= 0 && r.r <= r.w, "the bar is inside the screen: " + JSON.stringify(r));
+  assert.match(r.ta, /pan-x/, "the bar can be swiped sideways");
+  await page.evaluate(() => { document.getElementById("picker")!.hidden = false; });
+  const p = await page.evaluate(() => { const b = document.getElementById("picker")!.getBoundingClientRect(); return { l: b.left, r: b.right, t: b.top, b: b.bottom, w: innerWidth, h: innerHeight }; });
+  assert.ok(p.l >= 0 && p.r <= p.w && p.t >= 0 && p.b <= p.h, "the picker fits the screen: " + JSON.stringify(p));
+  await ctx.close();
+});
+
 await test("phone: one row top bar, nothing wider than the screen, tap targets 40px, one finger pans, two fingers pinch-zoom", async () => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   const page = await ctx.newPage(); page.setDefaultTimeout(8000);
