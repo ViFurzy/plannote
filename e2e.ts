@@ -177,6 +177,27 @@ await test("draw with the pen: every stroke saves by itself, Esc stops, undo rem
   assert.equal(await page.locator("#canvas .sketch").count(), 1);
 });
 
+await test("drawing: a Pencil's pressure changes the stroke width, the pen size is chosen and remembered, the eraser deletes strokes it touches", async ({ page, ctx }) => {
+  const cdp = await ctx.newCDPSession(page), pen = (type: string, x: number, y: number, force: number) => cdp.send("Input.dispatchMouseEvent", { type, x, y, button: "left", buttons: type === "mouseReleased" ? 0 : 1, clickCount: 1, pointerType: "pen", force });
+  const sketches = async () => (await stored(page)).filter((e) => e.elementType === "SKETCH");
+  await page.click("#draw"); await page.click('#pensize [data-size="9"]');
+  await pen("mouseMoved", 400, 300, 0); await pen("mousePressed", 400, 300, 0.2);
+  for (let i = 1; i <= 10; i++) await pen("mouseMoved", 400 + i * 20, 300 + i * 4, 0.2 + i * 0.08);
+  await pen("mouseReleased", 600, 340, 0); await settle(page, 600);
+  const [s] = await sketches();
+  assert.equal(s.content.size, 9, "the chosen size is stored with the stroke");
+  assert.ok(s.content.paths[0].every((q: number[]) => q.length === 3 && q[2] > 0 && q[2] <= 1), "every point carries its pressure");
+  assert.ok(await page.locator("#canvas .sketch .ink").count() > 1, "different pressures draw as runs of different widths");
+  await page.click("#draw"); await page.click("#draw"); // off and on again: the size is still selected
+  assert.equal(await page.locator('#pensize [data-size="9"]').evaluate((b) => b.classList.contains("on")), true);
+  await page.click("#erase");
+  await page.mouse.move(500, 250); await page.mouse.down(); await page.mouse.move(500, 360, { steps: 8 }); await page.mouse.up(); await settle(page, 700);
+  assert.equal(await page.locator("#canvas .sketch").count(), 0, "the eraser removed the stroke it crossed");
+  assert.equal((await sketches()).length, 0, "and it is gone on the server");
+  await page.keyboard.press("Control+z"); await settle(page, 900);
+  assert.equal(await page.locator("#canvas .sketch").count(), 1, "undo brings it back");
+});
+
 await test("lines attach to cards and follow them when a card moves", async ({ page }) => {
   await add(page, "note", "A"); await add(page, "note", "B");
   const ids = await page.locator("#canvas > .note").evaluateAll((els) => els.map((e) => e.id));
@@ -432,6 +453,75 @@ function twoColourPng(): Buffer {
   const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(8, 0); ihdr.writeUInt32BE(8, 4); ihdr[8] = 8; ihdr[9] = 2; // 8x8, 8-bit RGB
   const rows = Buffer.concat(Array.from({ length: 8 }, () => Buffer.concat([Buffer.from([0]), ...Array.from({ length: 8 }, (_, x) => Buffer.from(x < 4 ? [255, 0, 0] : [0, 0, 255]))])));
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(rows)), chunk("IEND", Buffer.alloc(0))]);
+}
+
+await test("shapes: pick one from the Shape tool, type in it, resize keeps the line thickness, change kind/fill/dash/weight and colour, arrows meet the true outline", async ({ page }) => {
+  const shapes = async () => (await stored(page)).filter((e) => e.elementType === "SHAPE");
+  await page.click("#shape");
+  assert.equal(await page.locator("#shapepop button").count(), 20, "twenty shapes to choose from");
+  assert.ok((await page.locator("#shapepop button").first().boundingBox())!.height >= 44, "cells are at least 44 px tall");
+  await page.click('#shapepop [data-kind="ellipse"]'); await page.keyboard.type("Hello"); await page.keyboard.press("Escape"); await settle(page, 700);
+  const [s] = await shapes();
+  assert.equal(s.content.kind, "ellipse"); assert.equal(s.content.textContent, "Hello", "its text is stored where search and export read it");
+  assert.equal(await page.locator(".shape .text").innerText(), "Hello");
+  const sw = () => page.locator(".shape .body").evaluate((p) => getComputedStyle(p).strokeWidth);
+  const path0 = await page.locator(".shape .body").getAttribute("d"), sw0 = await sw();
+  const r = await box(page, ".shape"); await page.locator(".shape").click({ position: { x: r.width / 2, y: r.height / 2 } });
+  const se = await box(page, ".shape .grip.se"); await drag(page, mid(se), { x: mid(se).x + 120, y: mid(se).y + 60 }); await settle(page, 700);
+  assert.notEqual(await page.locator(".shape .body").getAttribute("d"), path0, "the outline is drawn again at the new size");
+  assert.equal(await sw(), sw0, "and its line is as thick as before");
+  const [big] = await shapes(); assert.ok(big.content.width > 160 && big.content.height > 120, "the new size is stored");
+  // options: kind, outline only, dashed, thick
+  await page.click("#shapeKind"); await page.click('#shapepop [data-kind="star"]'); await page.click('#shapebar [data-prop=fill] [data-val=none]'); await page.click('#shapebar [data-prop=dash] [data-val=dashed]'); await page.click('#shapebar [data-prop=weight] [data-val="6"]'); await settle(page, 700);
+  const [o] = await shapes(); assert.deepEqual([o.content.kind, o.content.fill, o.content.dash, o.content.weight], ["star", "none", "dashed", 6]);
+  assert.equal(await page.locator(".shape").evaluate((d) => d.classList.contains("nofill") && d.classList.contains("dashed")), true);
+  assert.equal(await sw(), "6px");
+  await page.click('#colorbar [data-val="rose"]'); await settle(page, 600);
+  assert.equal((await shapes())[0].content.color, "rose", "the colour bar works on shapes");
+  await page.keyboard.press("Control+z"); await settle(page, 700); assert.equal((await shapes())[0].content.color ?? null, null, "undo");
+  // an arrow leaves an ellipse on its curve, not at the corner of its box
+  const p = await page.evaluate(() => { const E = (0, eval); const w = E("window") as any; return E("edgePoint")({ l: 0, t: 0, r: 200, b: 100, poly: E("shapeRings")({ kind: "ellipse" }, 200, 100)[0] }, { x: 200, y: 100 }); });
+  within(p.x, 170.7, 3, "arrow end x on the ellipse"); within(p.y, 85.4, 3, "arrow end y on the ellipse");
+  // every kind draws something and hostile kinds fall back to a rectangle
+  const bad = await page.evaluate(() => { const S = (window as any).SHAPES; return [S.KINDS.every(([k]: string[]) => S.poly(k, 100, 60)[0].length >= 3), S.poly("constructor", 100, 60)[0].length === 4, S.poly("__proto__", 100, 60)[0].length === 4]; });
+  assert.deepEqual(bad, [true, true, true]);
+});
+
+await test("a picture larger than 2048 px is shrunk before it is uploaded; a small one is left alone", async ({ page }) => {
+  const dir = mkdtempSync(join(tmpdir(), "e2e-big-")), big = join(dir, "big.png");
+  const b64 = await page.evaluate(() => { const c = document.createElement("canvas"); c.width = 3200; c.height = 1600; const g = c.getContext("2d")!; g.fillStyle = "#3e63dd"; g.fillRect(0, 0, 3200, 1600); return c.toDataURL("image/png").split(",")[1]; });
+  writeFileSync(big, Buffer.from(b64, "base64"));
+  await page.setInputFiles("#file", big);
+  await page.waitForFunction(() => { const i = document.querySelector<HTMLImageElement>(".image img"); return !!i && i.complete && i.naturalWidth > 0; });
+  assert.deepEqual(await page.locator(".image img").evaluate((i: HTMLImageElement) => [i.naturalWidth, i.naturalHeight]), [2048, 1024], "the stored picture is 2048 px on its long side, same shape");
+  const small = join(dir, "two.png"); writeFileSync(small, twoColourPng());
+  await page.setInputFiles("#file", small);
+  await page.waitForFunction(() => document.querySelectorAll(".image img").length === 2 && [...document.querySelectorAll<HTMLImageElement>(".image img")].every((i) => i.complete && i.naturalWidth > 0));
+  assert.ok((await page.locator(".image img").evaluateAll((a: HTMLImageElement[]) => a.map((i) => i.naturalWidth))).some((w) => w < 100), "a small picture keeps its own size");
+  rmSync(dir, { recursive: true });
+});
+
+for (const [w, h] of [[834, 1194], [1180, 820]] as const) {
+  await test(`iPad layout (${w}x${h}): nothing scrolls sideways, the bars fit, every button and field is at least 44 px`, async () => {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: true, deviceScaleFactor: 2 });
+    const page = await ctx.newPage(); page.setDefaultTimeout(8000); await page.goto(`${URL}/?u=lay${w}${Date.now().toString(36)}`);
+    await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live");
+    const audit = () => page.evaluate((W) => {
+      const small: string[] = [];
+      for (const el of document.querySelectorAll("button, input, a[href], .tool")) {
+        const b = el.getBoundingClientRect(), cs = getComputedStyle(el);
+        if (!b.width || !b.height || cs.visibility === "hidden" || el.closest("[hidden], #canvas") || el.classList.contains("sw") || el.closest(".seg")?.querySelector(".sw")) continue; // colour dots are 32-36 px by design
+        if (Math.min(b.width, b.height) < 43.5) small.push((el.id || el.className || el.tagName) + " " + Math.round(b.width) + "x" + Math.round(b.height));
+      }
+      return { small, wide: document.documentElement.scrollWidth > W, bars: [...document.querySelectorAll("#top, #ctx, #tools, #zoom")].filter((b) => { const r = b.getBoundingClientRect(); return r.width && (r.left < -1 || r.right > W + 1); }).map((b) => b.id) };
+    }, w);
+    for (const [label, act] of [["empty board", async () => {}], ["a note selected", async () => { await page.click("#note"); await page.keyboard.press("Escape"); }], ["boards panel", async () => { await page.click("#boardsBtn"); }], ["draw bar", async () => { await page.keyboard.press("Escape"); await page.click("#draw"); }]] as const) {
+      await act(); await settle(page, 300);
+      const r = await audit();
+      assert.deepEqual(r, { small: [], wide: false, bars: [] }, `${label}: ${JSON.stringify(r)}`);
+    }
+    await ctx.close();
+  });
 }
 
 await test("colour card: pick a colour, it is stored; colours from a picture make cards", async ({ page }) => {

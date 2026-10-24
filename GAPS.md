@@ -42,7 +42,7 @@ UI: solid top bar (navigation, search, Boards, Outline, board actions); left opt
 | 1 | Embeds | YouTube, Vimeo, SoundCloud, Google Maps, CodePen... as a playable card | L |
 | 2 | Freehand draw on images | Draw tool on a picture (boardsync has numbered pins instead) | L |
 | 3 | Import from Milanote's own board data | Exact copy: colours, positions, arrows (Markdown cannot carry them) | L |
-| 4 | Pen thickness, eraser | Drawing toolbar | S |
+| 4 | ~~Pen thickness, eraser~~ done (4 sizes, whole-stroke eraser) | Drawing toolbar | S |
 | 5 | Image library (Pexels), web clipper | | L (outside the app) |
 
 Decided against for now: `[ ]` checkbox shortcut, @mentions, reactions, iPad gestures, ZIP-by-email export.

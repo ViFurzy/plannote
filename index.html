@@ -71,7 +71,7 @@
   #marquee { position: fixed; z-index: 8; pointer-events: none; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
   /* the zoomable layer: every card lives in here, positioned in board coordinates */
-  #canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  #canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; } /* pan and zoom move one layer on the GPU (only this element: on every card it would eat an iPad's memory) */
 
   /* cards */
   .card { position: absolute; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow);
@@ -231,7 +231,7 @@
   #fmtPal { position: absolute; left: 0; top: calc(100% + 10px); z-index: 2; padding: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); } /* text colours drop down under the bar */
   #fmtPal[hidden] { display: none; }
   @media (max-width: 1100px) { #st { font-size: 0; gap: 0; padding: 0 6px; } } /* the status is just its dot on tablets, so the centred search has room */
-  @media (max-width: 900px) { #ctx { overflow-x: auto; scrollbar-width: none; } #ctx::-webkit-scrollbar { display: none; } #fmtPal { position: static; padding: 0; border: 0; box-shadow: none; } }
+  @media (max-width: 900px), (any-pointer: coarse) and (max-width: 1250px) { #ctx { overflow-x: auto; scrollbar-width: none; } #ctx::-webkit-scrollbar { display: none; } #fmtPal { position: static; padding: 0; border: 0; box-shadow: none; } }
   #bgpop { position: fixed; top: 56px; left: 84px; z-index: 10; flex-direction: column; align-items: flex-start; gap: 8px; }
   .lab { color: var(--muted); font-size: 12px; }
   .btn.ic { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; }
@@ -263,6 +263,22 @@
   .sketch .grip { pointer-events: auto; }
   .sketch svg { display: block; width: 100%; height: auto; }
   .sketch .ink, #draft path { fill: none; stroke: var(--ink); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+  #shapepop { position: fixed; z-index: 12; display: grid; grid-template-columns: repeat(5, 52px); gap: 4px; padding: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); max-width: calc(100vw - 16px); box-sizing: content-box; touch-action: pan-y; }
+  #shapepop[hidden] { display: none; }
+  #shapepop button { width: 52px; height: 44px; padding: 0; display: grid; place-items: center; background: none; border: 1px solid transparent; border-radius: 8px; color: var(--ink); cursor: pointer; }
+  #shapepop button:hover, #shapepop button.on { background: var(--accent-soft); border-color: var(--accent); }
+  #shapepop svg { width: 40px; height: 30px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
+  /* shapes: the card is only a box; the outline is an svg regenerated at the card's size (so the line stays the same thickness), the text sits in the middle */
+  .card.shape, .card.shape[data-tint]:not(.board) { padding: 0; min-width: 0; background: none; border-color: transparent; box-shadow: none; pointer-events: none; }
+  .card.shape:hover { border-color: transparent; box-shadow: none; }
+  .shape .grip { pointer-events: auto; }
+  .shape .shp { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+  .shape .shp path { fill: none; stroke: var(--ink); stroke-width: var(--sw, 2); stroke-linejoin: round; stroke-linecap: round; pointer-events: none; }
+  .shape .shp .body { fill: var(--tint, var(--surface)); pointer-events: all; cursor: grab; }
+  .shape.nofill .shp .body { fill: none; }
+  .shape.dashed .shp path { stroke-dasharray: 8 6; }
+  .shape .text { position: absolute; inset: 10% 12%; display: grid; place-items: center; text-align: center; overflow: hidden; overflow-wrap: anywhere; pointer-events: none; color: inherit; }
+  .shape:has(> .text[contenteditable=true]) .text { pointer-events: auto; overflow: visible; }
   .sketch .hit { fill: none; stroke: transparent; stroke-width: 14; stroke-linecap: round; stroke-linejoin: round; pointer-events: stroke; cursor: grab; }
   #draft { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; z-index: 20; }
   body[data-tool=line], body[data-tool=line] .card, body[data-tool=draw], body[data-tool=draw] .card { cursor: crosshair; }
@@ -403,7 +419,12 @@
   @media (pointer: coarse) { #search #q, #bpanel #bq, #picker #phex, #fmt .size #fsize { font-size: 16px; } }
   body.kb #tools { display: none; } /* the on-screen keyboard is up: the tool strip would only sit on top of it */
   body.kb #ctx { top: auto; bottom: calc(var(--kb, 0px) + 8px); }
-  @media (pointer: coarse) { .btn { min-height: 40px; min-width: 40px; } .seg .sw { width: 32px; height: 32px; } #expop .item, #setpop .item { min-height: 40px; } }
+  /* any touch screen (an iPad with a keyboard or trackpad still reports a fine primary pointer): Apple's 44pt targets; colour dots are 36 so a row of them still fits */
+  @media (any-pointer: coarse) {
+    .btn, .tool { min-height: 44px; min-width: 44px; } .seg .sw, .btn.sw { width: 36px; height: 36px; min-width: 0; min-height: 0; } #expop .item, #setpop .item { min-height: 44px; }
+    #search #q, #bpanel #bq, #shareuser, #sharepm, #fmt .size #fsize { min-height: 44px; box-sizing: border-box; } #bpanel .row { min-height: 44px; }
+    #crumbs a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; } #ctx .seg .sw, #ctx .btn.sw { width: 32px; height: 32px; }
+  }
   @media (max-width: 640px) {
     /* phone: the top bar is one row you can swipe sideways; the tools sit along the bottom; the options panel is a sheet above them; zoom is under the top bar */
     #top { gap: 6px; padding: 4px 8px; }
@@ -411,7 +432,7 @@
     #side::-webkit-scrollbar { display: none; }
     #side > .pill { flex: 0 0 auto; } #side > .pill + .pill { padding-left: 8px; margin-left: 0; }
     #crumbs { max-width: 38vw; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: block; line-height: 40px; }
-    #search, #top #search { position: static; transform: none; padding: 4px 10px; } #search input { width: 64px; } #qcount { display: none; }
+    #search, #top #search { position: static; transform: none; padding: 0 10px; } #search input { width: 64px; } #qcount { display: none; }
     #st { font-size: 0; gap: 0; padding: 0 6px; }
     #tools { top: auto; bottom: max(8px, env(safe-area-inset-bottom)); left: 8px; right: 8px; transform: none; flex-direction: row; overflow-x: auto; overflow-y: hidden; max-height: none; gap: 0; scrollbar-width: none; }
     .tool { touch-action: pan-x; flex: 0 0 auto; width: 64px; min-height: 52px; white-space: nowrap; font-size: 11px; }
@@ -448,6 +469,7 @@
   <button class="tool" id="table"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M4 10h16M4 14.5h16M10 5v14"/></svg>Table</button>
   <button class="tool" id="link"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>Link</button>
   <button class="tool" id="image"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M4 16l4.5-4 3.5 3 3-2.5 5 4"/></svg>Image</button>
+  <button class="tool" id="shape"><svg viewBox="0 0 24 24"><rect x="3.5" y="11" width="9" height="9" rx="1.5"/><circle cx="15.5" cy="8.5" r="5"/></svg>Shape</button>
   <button class="tool" id="line"><svg viewBox="0 0 24 24"><path d="M5 19L19 5"/><path d="M11 5h8v8"/></svg>Line</button>
   <button class="tool" id="draw"><svg viewBox="0 0 24 24"><path d="M4 20l1-4L16 5l3 3L8 19z"/><path d="M14 7l3 3"/></svg>Draw</button>
   <button class="tool" id="comment"><svg viewBox="0 0 24 24"><path d="M5 6h14v10h-8l-4 3v-3H5z"/></svg>Comment</button>
@@ -456,6 +478,7 @@
   <div class="sep"></div>
   <button class="tool" id="trashBtn" title="Drag cards here to delete them. Or select cards and press Delete."><svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12M10 11v5M14 11v5"/></svg>Trash</button>
 </nav>
+<div id="shapepop" hidden role="dialog" aria-label="Shapes"></div>
 <input type="file" id="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
 <div id="top">
   <div id="side">
@@ -544,7 +567,7 @@
   <div id="precent"></div>
 </div>
 <div id="ctx" role="toolbar" aria-label="Options for the selection">
-<div class="pill" id="drawbar" hidden><span class="lab">Pen</span><div class="seg" data-prop="pen"></div><span class="lab" style="flex:0 0 100%">Every stroke is saved as you lift the pen. Esc to stop.</span></div>
+<div class="pill" id="drawbar" hidden><span class="lab">Pen</span><div class="seg" data-prop="pen"></div><div class="seg" id="pensize"></div><button class="btn" id="erase" title="Eraser: touch a stroke to delete it">Eraser</button><span class="lab" style="flex:0 0 100%">Every stroke is saved as you lift the pen. Esc to stop.</span></div>
 <div class="pill" id="imgbar" hidden><span class="lab">Picture</span>
   <button class="btn" id="imgPal" title="Make colour cards from this picture">Colours</button><button class="btn" id="imgCrop">Crop</button><button class="btn" id="imgReset" hidden>Reset</button><button class="btn" id="imgPin" title="Click the picture to leave a numbered note on it">Pin</button><button class="btn" id="imgRotate" title="Turn the picture 90 degrees clockwise">Rotate</button><button class="btn" id="imgDownload" title="Save the whole picture (not the crop)">Download</button><button class="btn" id="imgOpen">Open</button>
 </div>
@@ -576,6 +599,12 @@
     <button class="btn sw" data-val="ink" style="--c: var(--ink)" aria-label="Default colour"></button><button class="btn sw" data-val="blue" style="--c: var(--accent)" aria-label="Blue"></button><button class="btn sw" data-val="red" style="--c: var(--bad)" aria-label="Red"></button><button class="btn sw" data-val="green" style="--c: var(--ok)" aria-label="Green"></button><button class="btn sw" data-val="amber" style="--c: #d99a00" aria-label="Amber"></button>
   </div>
 </div>
+<div class="pill" id="shapebar" hidden>
+  <button class="btn" id="shapeKind" title="Change the shape">Shape</button>
+  <div class="seg" data-prop="fill"><button class="btn" data-val="solid">Filled</button><button class="btn" data-val="none">Outline</button></div>
+  <div class="seg" data-prop="dash"><button class="btn" data-val="solid">Solid</button><button class="btn" data-val="dashed">Dashed</button></div>
+  <div class="seg" data-prop="weight"><button class="btn" data-val="2">Thin</button><button class="btn" data-val="4">Medium</button><button class="btn" data-val="6">Thick</button></div>
+</div>
 <div class="pill" id="colorbar" hidden><span class="lab">Card colour</span><div class="seg" data-prop="color"></div></div>
 <div class="pill" id="inkbar" hidden><span class="lab">Pen</span><div class="seg" data-prop="ink"></div></div>
 <div class="pill" id="iconbar" hidden><span class="lab">Icon</span><button class="btn ic" id="iconBtn" aria-label="Choose an icon" title="Choose an icon for this board"></button></div>
@@ -588,6 +617,7 @@
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="/icons.js"></script>
+<script src="/shapes.js"></script>
 <script>
 const sid = Math.random().toString(36).slice(2, 8);
 let HOME, B = "", joined = null, n = 0, els = {}, loading = false; // HOME = this user's root board, from app-init
@@ -603,12 +633,12 @@ const rid = () => Math.random().toString(36).slice(2, 8);
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const capture = (el, pointerId) => { try { el.setPointerCapture(pointerId); } catch {} }; // reparenting a card releases capture; a stale id throws
 
-const KIND = { CARD: "note", COLUMN: "column", BOARD: "board", TASK_LIST: "todo", LINK: "link", IMAGE: "image", LINE: "line", SKETCH: "sketch", COMMENT_THREAD: "comment", TABLE: "sheet", SWATCH: "swatch" };
-const LABEL = { CARD: "Note", COLUMN: "Column", BOARD: "Board", TASK_LIST: "To-do", LINK: "Link", IMAGE: "Image", LINE: "Line", SKETCH: "Drawing", COMMENT_THREAD: "Comment", TABLE: "Table", SWATCH: "Colour" };
+const KIND = { CARD: "note", COLUMN: "column", BOARD: "board", TASK_LIST: "todo", LINK: "link", IMAGE: "image", LINE: "line", SKETCH: "sketch", COMMENT_THREAD: "comment", TABLE: "sheet", SWATCH: "swatch", SHAPE: "shape" };
+const LABEL = { CARD: "Note", COLUMN: "Column", BOARD: "Board", TASK_LIST: "To-do", LINK: "Link", IMAGE: "Image", LINE: "Line", SKETCH: "Drawing", COMMENT_THREAD: "Comment", TABLE: "Table", SWATCH: "Colour", SHAPE: "Shape" };
 const ASPECT = new Set(["IMAGE", "SKETCH"]); // resized by scaling, so their height follows their width
 const NS = "http://www.w3.org/2000/svg";
 // the content field shown in a card's editable text (images have none)
-const FIELD = { IMAGE: "caption", CARD: "textContent", COLUMN: "title", BOARD: "title", TASK_LIST: "title", LINK: "url" };
+const FIELD = { IMAGE: "caption", CARD: "textContent", SHAPE: "textContent", COLUMN: "title", BOARD: "title", TASK_LIST: "title", LINK: "url" };
 const DEFAULT = { COLUMN: "Column", BOARD: "Untitled board", TASK_LIST: "To-do list", LINK: "Paste a link" };
 // Board icons come from the library in icons.js (Tabler Icons): one outline family, drawn in the tile's colour. Boards made before the library keep their old names.
 const ICON_ALIAS = { grid: "layout-grid", sparkle: "sparkles", gamepad: "device-gamepad-2", cart: "shopping-cart" };
@@ -636,7 +666,7 @@ const TINTS = ["sage", "teal", "sand", "orange", "slate", "rose", "lilac"];
 // A colour is either a palette name or a custom #rrggbb. Custom values come from other clients and end up in CSS, so only this exact shape is accepted.
 const HEX = /^#[0-9a-f]{6}$/i;
 const colourKey = (v) => (HEX.test(v ?? "") ? "custom" : v ?? ""); // what a swatch row marks as "on" for a stored value
-const COLOURABLE = new Set(["CARD", "TASK_LIST", "LINK", "COLUMN", "COMMENT_THREAD", "BOARD", "TABLE", "IMAGE"]); // cards that take a colour
+const COLOURABLE = new Set(["CARD", "TASK_LIST", "LINK", "COLUMN", "COMMENT_THREAD", "BOARD", "TABLE", "IMAGE", "SHAPE"]); // cards that take a colour
 let counts = {}; // board id -> { boards, cards }: computed by the server for each board tile
 const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
 const countText = ({ boards, cards }) => [boards && plural(boards, "board"), (cards || !boards) && plural(cards, "card")].filter(Boolean).join(", ");
@@ -651,6 +681,7 @@ const HTML = {
   TABLE: '<div class="tbl"><table><tbody></tbody></table></div><div class="tbl-tools"><button class="btn" data-t="row">+ Row</button><button class="btn" data-t="col">+ Column</button><button class="btn" data-t="drow">- Row</button><button class="btn" data-t="dcol">- Column</button></div>',
   LINE: '<svg><path class="hit"/><path class="vis"/><path class="head"/><circle class="h h1" r="6"/><circle class="h h2" r="6"/></svg>',
   SKETCH: '<svg><path class="hit"/><path class="ink"/></svg>',
+  SHAPE: '<svg class="shp"><path class="body"/><path class="extra"/></svg><div class="text"></div>',
   COMMENT_THREAD: '<div class="head">Comment</div><div class="msgs"></div><input class="reply" name="reply" maxlength="2000" placeholder="Write a comment" autocomplete="off">',
 };
 // the one element inside a card that holds its editable text (none for images)
@@ -800,6 +831,31 @@ function mk(el) {
 }
 
 // a stroke as an svg path; a single point still draws a dot (round caps)
+// A shape's outline is drawn again at every size, so its line keeps its thickness (weight 2, 4 or 6); `rings` also serve arrows (see edgePoint)
+const shapeRings = (c, w, h) => SHAPES.poly(c.kind, w, h, (shapeWeight(c) / 2) + 0.5);
+const shapeWeight = (c) => ([2, 4, 6].includes(c.weight) ? c.weight : 2);
+function drawShape(d, c, w, h) {
+  const svg = d.querySelector(".shp"), rings = shapeRings(c, w, h);
+  svg.style.setProperty("--sw", shapeWeight(c));
+  svg.querySelector(".body").setAttribute("d", SHAPES.pathD(rings.slice(0, 1)));
+  svg.querySelector(".extra").setAttribute("d", SHAPES.pathD(rings.slice(1)));
+  d.classList.toggle("nofill", c.fill === "none"); d.classList.toggle("dashed", c.dash === "dashed");
+}
+// [d, width factor] runs: points are [x, y] or [x, y, pressure 0..1]; pressure is rounded to 5 widths and equal neighbours share a run (runs overlap by one point so they join)
+function inkRuns(paths) {
+  const out = [];
+  for (const pts of paths) {
+    if (!pts.some((q) => q[2] != null)) { out.push([pathD(pts), 1]); continue; }
+    const k = (q) => 0.3 + 0.35 * Math.round((q[2] ?? 0.5) * 4);
+    let run = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      if (k(pts[i]) !== k(run[0])) { out.push([pathD(run), k(run[0])]); run = [pts[i - 1]]; }
+      run.push(pts[i]);
+    }
+    out.push([pathD(run), k(run[0])]);
+  }
+  return out;
+}
 const pathD = (pts) => pts.map(([x, y], i) => (i ? "L" : "M") + x + " " + y).join("") + (pts.length === 1 ? `L${pts[0][0]} ${pts[0][1]}` : "");
 
 // line style: only known values are ever used (they come from other clients too, and end up in CSS)
@@ -842,11 +898,23 @@ function cardRect(id) {
   const d = id && $(id);
   if (!d || d.classList.contains("line")) return null; // a card that is not on screen (deleted, in the trash) detaches visually
   const r = d.getBoundingClientRect(), a = toBoard(r.left, r.top), b = toBoard(r.right, r.bottom);
-  return { l: a.x, t: a.y, r: b.x, b: b.y };
+  const k = { l: a.x, t: a.y, r: b.x, b: b.y }, e = els[id];
+  if (e?.elementType === "SHAPE") k.poly = shapeRings(e.content, k.r - k.l, k.b - k.t)[0].map(([x, y]) => [k.l + x, k.t + y]); // arrows meet the shape's own outline
+  return k;
 }
 function edgePoint(k, p) { // where a ray from the card's centre toward p leaves the card
   const cx = (k.l + k.r) / 2, cy = (k.t + k.b) / 2, dx = p.x - cx, dy = p.y - cy;
   if (!dx && !dy) return { x: cx, y: cy };
+  if (k.poly) { // the outermost crossing of the ray with the outline (a shape is never hollow towards its centre, so that is where it leaves)
+    let far = 0;
+    k.poly.forEach(([x1, y1], i) => {
+      const [x2, y2] = k.poly[(i + 1) % k.poly.length], ex = x2 - x1, ey = y2 - y1, den = dx * ey - dy * ex;
+      if (!den) return;
+      const t = ((x1 - cx) * ey - (y1 - cy) * ex) / den, u = ((x1 - cx) * dy - (y1 - cy) * dx) / den;
+      if (u >= 0 && u <= 1 && t > far) far = t;
+    });
+    if (far) return { x: cx + dx * Math.min(far, 1), y: cy + dy * Math.min(far, 1) };
+  }
   const t = Math.min(dx ? ((dx > 0 ? k.r : k.l) - cx) / dx : Infinity, dy ? ((dy > 0 ? k.b : k.t) - cy) / dy : Infinity, 1);
   return { x: cx + dx * t, y: cy + dy * t };
 }
@@ -875,7 +943,9 @@ const markBar = (bar, items, val) => {
 function syncBars() {
   const picked = [...sel].map((id) => els[id]).filter(Boolean);
   const lines = picked.filter((e) => e.elementType === "LINE"), tintable = picked.filter((e) => COLOURABLE.has(e.elementType)), boards = picked.filter((e) => e.elementType === "BOARD");
-  const sketches = picked.filter((e) => e.elementType === "SKETCH");
+  const sketches = picked.filter((e) => e.elementType === "SKETCH"), shapes = picked.filter((e) => e.elementType === "SHAPE");
+  $("shapebar").hidden = !shapes.length;
+  markBar($("shapebar"), shapes, (e, p) => (p === "weight" ? shapeWeight(e.content) : p === "fill" ? (e.content.fill === "none" ? "none" : "solid") : e.content.dash === "dashed" ? "dashed" : "solid"));
   $("linebar").hidden = !lines.length; $("colorbar").hidden = !tintable.length; $("iconbar").hidden = !boards.length; if (!boards.length) $("iconpick").hidden = true; $("inkbar").hidden = !sketches.length;
   $("imgbar").hidden = picked.filter((e) => e.elementType === "IMAGE").length !== 1; syncImgBar(); // picture options for exactly one picture
   markBar($("inkbar"), sketches, (e) => (INK.some(([v]) => v && v === e.content.color) ? e.content.color : colourKey(e.content.color)));
@@ -1186,6 +1256,31 @@ $("linebar").onclick = (e) => {
   set(prop === "weight" ? Number(b.dataset.val) : b.dataset.val);
 };
 
+// --- shapes: a picker (from the Shape tool, or to change the selected shapes) and the options of the selected shapes ---
+const shapeIcon = (k) => { const [w, h] = [36, 28]; return `<svg viewBox="0 0 ${w} ${h}">${SHAPES.poly(k, w, h, 2).map((r) => `<path d="${SHAPES.pathD([r])}"/>`).join("")}</svg>`; };
+let shapePick = null;
+$("shapepop").innerHTML = SHAPES.KINDS.map(([k, en, pl]) => `<button data-kind="${k}" title="${en} / ${pl}" aria-label="${en}">${shapeIcon(k)}</button>`).join("");
+function openShapes(anchor, onPick, current) { // opens next to the button that asked for it; a click on a shape calls onPick(kind)
+  const pop = $("shapepop"); shapePick = onPick; pop.hidden = false;
+  pop.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.kind === current));
+  const r = anchor.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight, side = r.right + 8 + w <= innerWidth && anchor.closest("#tools") && innerWidth > 640;
+  const left = side ? r.right + 8 : r.left, top = side ? r.top : r.bottom + 8 + h <= innerHeight ? r.bottom + 8 : r.top - h - 8;
+  pop.style.left = clamp(left, 8, Math.max(8, innerWidth - w - 8)) + "px"; pop.style.top = clamp(top, 8, Math.max(8, innerHeight - h - 8)) + "px";
+}
+const closeShapes = () => { $("shapepop").hidden = true; shapePick = null; };
+$("shapepop").onclick = (e) => { const b = e.target.closest("button[data-kind]"), pick = shapePick; if (!b || !pick) return; closeShapes(); pick(b.dataset.kind); };
+addEventListener("pointerdown", (e) => { if (!$("shapepop").hidden && !e.target.closest("#shapepop, #shape, #shapeKind")) closeShapes(); }, true);
+addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("shapepop").hidden) { closeShapes(); e.stopPropagation(); } }, true);
+$("shape").onclick = () => ($("shapepop").hidden ? openShapes($("shape"), (kind) => add("SHAPE", { kind, width: SIZE.SHAPE[0], height: SIZE.SHAPE[1] })) : closeShapes());
+const shapeIds = () => [...sel].filter((id) => els[id]?.elementType === "SHAPE");
+$("shapeKind").onclick = () => ($("shapepop").hidden ? openShapes($("shapeKind"), (kind) => updateMany(shapeIds().map((id) => ({ id, changes: { kind } }))), els[shapeIds()[0]]?.content.kind) : closeShapes());
+$("shapebar").onclick = (e) => {
+  const b = e.target.closest("button[data-val]");
+  if (!b) return;
+  const prop = b.parentElement.dataset.prop, val = prop === "weight" ? Number(b.dataset.val) : b.dataset.val;
+  updateMany(shapeIds().map((id) => ({ id, changes: { [prop]: val } }))); // one action, one undo step
+};
+
 // a table is rows of text cells (at most 100 x 20, 500 characters a cell, whatever another client sent); the first row is the header
 const tableRows = (c) => {
   const rows = Array.isArray(c.rows) ? c.rows.slice(0, 100).map((r) => (Array.isArray(r) ? r.slice(0, 20).map((v) => String(v ?? "").slice(0, 500)) : [])) : [];
@@ -1237,6 +1332,11 @@ function render(el) {
   d.style.width = onCanvas && el.content.width ? el.content.width + "px" : "";
   // height is a minimum (the card still grows with its content); images keep their aspect ratio, so their height follows the width
   d.style.minHeight = onCanvas && el.content.height && !ASPECT.has(type) ? el.content.height + "px" : "";
+  if (type === "SHAPE") { // a shape is exactly its box, never grown by its text
+    const h = el.content.height || SIZE.SHAPE[1]; d.style.height = h + "px";
+    drawShape(d, el.content, onCanvas ? el.content.width || SIZE.SHAPE[0] : d.offsetWidth || SIZE.SHAPE[0], h);
+    if (el.content.fill === "none") d.style.color = ""; // no fill: the text sits on the board, so it keeps the normal text colour
+  }
   if (box.id === "canvas") {
     const { x, y } = el.location.position;
     Object.assign(d.style, { position: "absolute", left: x + "px", top: y + "px" });
@@ -1293,11 +1393,14 @@ function render(el) {
   }
   if (type === "LINE") layoutLine(el);
   if (type === "SKETCH") {
-    const { w = 1, h = 1, paths = [] } = el.content, svg = d.querySelector("svg");
+    const { w = 1, h = 1, paths = [], size = 2.5 } = el.content, svg = d.querySelector("svg");
     svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
-    svg.querySelectorAll("path").forEach((p) => p.setAttribute("d", paths.map(pathD).join("")));
+    svg.querySelector(".hit").setAttribute("d", paths.map(pathD).join(""));
+    svg.querySelectorAll(".ink").forEach((p) => p.remove());
     const ink = HEX.test(el.content.color ?? "") ? el.content.color : ""; // no colour: the theme's ink
-    svg.querySelectorAll(".ink").forEach((p) => (p.style.stroke = ink));
+    for (const [d, k] of inkRuns(paths)) { // a stroke drawn with pressure is several runs of different widths; otherwise one run
+      const p = document.createElementNS(NS, "path"); p.setAttribute("class", "ink"); p.setAttribute("d", d); p.style.stroke = ink; p.style.strokeWidth = +(size * k).toFixed(2); svg.append(p);
+    }
   }
   if (type === "COMMENT_THREAD") {
     const list = d.querySelector(".msgs");
@@ -1477,8 +1580,10 @@ function wire(d) {
         resize.w = clamp(w0 * k, 120, 800);
         d.style.width = resize.w + "px";
       } else {
-        if (dir !== "s") { resize.w = clamp(w0 + dx, 120, 800); d.style.width = resize.w + "px"; }
+        const minW = type() === "SHAPE" ? 40 : 120; // a shape can be small; a note must stay readable
+        if (dir !== "s") { resize.w = clamp(w0 + dx, minW, 800); d.style.width = resize.w + "px"; }
         if (dir !== "e") { resize.h = clamp(h0 + dy, 40, 1600); d.style.minHeight = resize.h + "px"; }
+        if (type() === "SHAPE") { d.style.height = (resize.h ?? h0) + "px"; drawShape(d, el().content, resize.w ?? w0, resize.h ?? h0); } // redrawn live at the new size
       }
       relayout(d.id);
       return;
@@ -1579,7 +1684,7 @@ function wire(d) {
     if (tg.closest("a, input, textarea, button") || tg.classList.contains("grip")) return;
     if (type() === "BOARD") location.hash = d.id; // open it; F2 renames
     else if (type() === "IMAGE") startEdit(); // the caption
-    else if (type() === "CARD" || type() === "LINK" || type() === "SWATCH" || tg.closest(".title")) startEdit();
+    else if (type() === "CARD" || type() === "LINK" || type() === "SWATCH" || type() === "SHAPE" || tg.closest(".title")) startEdit();
   };
   d.ondblclick = (e) => { e.stopPropagation(); openCard(e.target); };
 
@@ -1761,7 +1866,7 @@ addEventListener("pointerdown", (e) => {
   if (e.pointerType === "touch") lastTouch = Date.now();
   if (e.pointerType === "pen") fingers.clear(); // the Pencil is down: a resting hand's touches are not a gesture
   if (!$("picker").hidden && !e.target.closest("#picker, .sw.custom")) closePicker(); // a click anywhere else dismisses the picker
-  if (e.target.closest("#tools, #top, #trash, #zoom, #drawbar, #ctx, #bgpop, #picker, #iconpick, #outline, #bpanel")) return;
+  if (e.target.closest("#tools, #top, #trash, #zoom, #drawbar, #ctx, #bgpop, #picker, #iconpick, #outline, #bpanel, #shapepop")) return;
   if (e.button === 1 || (spaceDown && e.button === 0)) { e.preventDefault(); return startPan(e); }
   if (e.button === 0 && tool === "line") { e.preventDefault(); return startLine(e); }
   if (e.button === 0 && tool === "draw") { e.preventDefault(); return startStroke(e); }
@@ -1918,7 +2023,7 @@ addEventListener("dblclick", (e) => {
 addEventListener("keyup", (e) => { if (e.key === " ") { spaceDown = false; document.body.classList.remove("pan"); } });
 
 // first spot on a grid that does not overlap a card already on the canvas, searched in board coordinates inside the visible area
-const SIZE = { CARD: [200, 64], COLUMN: [240, 140], BOARD: [124, 150], TASK_LIST: [240, 150], LINK: [240, 100], IMAGE: [232, 170], COMMENT_THREAD: [240, 90], TABLE: [330, 150], SWATCH: [112, 120] };
+const SIZE = { CARD: [200, 64], COLUMN: [240, 140], BOARD: [124, 150], TASK_LIST: [240, 150], LINK: [240, 100], IMAGE: [232, 170], COMMENT_THREAD: [240, 90], TABLE: [330, 150], SWATCH: [112, 120], SHAPE: [160, 120] };
 function freeSpot(type) {
   const [w, h] = SIZE[type], gap = 16;
   const taken = topCards().map((c) => { const r = c.getBoundingClientRect(), a = toBoard(r.left, r.top), b = toBoard(r.right, r.bottom); return { l: a.x, t: a.y, r: b.x, b: b.y }; });
@@ -2213,7 +2318,7 @@ function cardMenu() {
     ...(one && one.meta.createdTime ? ["-", { note: `Created by ${by === uid || by === sid ? "you" : by} ${ago(one.meta.createdTime)}` }] : []),
   ];
 }
-const NEW_CARDS = [["Note", "CARD", { textContent: "" }], ["Link", "LINK", { url: "" }], ["To-do", "TASK_LIST", () => ({ title: "", tasks: [{ id: rid(), text: "", done: false }] })], ["Board", "BOARD", { title: "" }], ["Column", "COLUMN", { title: "" }], ["Comment", "COMMENT_THREAD", { messages: [] }], ["Table", "TABLE", { rows: [["", "", ""], ["", "", ""], ["", "", ""]], header: true }], ["Colour", "SWATCH", { color: "#87d7ff" }], ["Heading", "CARD", { textContent: "", heading: true }]];
+const NEW_CARDS = [["Note", "CARD", { textContent: "" }], ["Link", "LINK", { url: "" }], ["To-do", "TASK_LIST", () => ({ title: "", tasks: [{ id: rid(), text: "", done: false }] })], ["Board", "BOARD", { title: "" }], ["Column", "COLUMN", { title: "" }], ["Comment", "COMMENT_THREAD", { messages: [] }], ["Table", "TABLE", { rows: [["", "", ""], ["", "", ""], ["", "", ""]], header: true }], ["Colour", "SWATCH", { color: "#87d7ff" }], ["Heading", "CARD", { textContent: "", heading: true }], ["Shape", "SHAPE", { kind: "rounded", width: 160, height: 120 }]];
 function canvasMenu(pt) {
   const at = { x: Math.round(pt.x), y: Math.round(pt.y) }, c = readClip();
   return [
@@ -2348,30 +2453,60 @@ function startLine(e) { // press, drag, release: draws an arrow; an end that sta
 
 // Every stroke is saved the moment the pen lifts, as its own drawing card, so it is one undo step. The tool stays on until Esc.
 const MAX_STROKE_POINTS = 4000; // keeps one stroke far inside the socket's 1 MB message limit
+// Pen size (4 presets) and eraser; the size is remembered in this browser like the colour
+const PEN_SIZES = [2.5, 5, 9, 15];
+let penSize = (() => { try { const v = +localStorage.getItem("pensize"); return PEN_SIZES.includes(v) ? v : PEN_SIZES[0]; } catch { return PEN_SIZES[0]; } })(), erasing = false;
+function markSize() {
+  $("pensize").querySelectorAll("button").forEach((b) => b.classList.toggle("on", !erasing && +b.dataset.size === penSize));
+  $("erase").classList.toggle("on", erasing);
+}
+$("pensize").innerHTML = PEN_SIZES.map((s) => `<button class="btn" data-size="${s}" title="Pen size ${s}" aria-label="Pen size ${s}"><svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="${Math.min(s / 2 + 1, 9)}" fill="currentColor"/></svg></button>`).join("");
+$("pensize").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; penSize = +b.dataset.size; erasing = false; try { localStorage.setItem("pensize", penSize); } catch { /* not remembered, still used */ } markSize(); };
+$("erase").onclick = () => { erasing = !erasing; markSize(); };
+markSize();
+function eraseStroke(e) { // dragging over a stroke deletes that drawing (one undo step each)
+  const gone = new Set(), hit = (m) => {
+    for (const nd of document.elementsFromPoint(m.clientX, m.clientY)) {
+      const id = nd.classList?.contains("hit") && nd.closest(".sketch")?.id;
+      if (id && !gone.has(id)) { gone.add(id); trashIds([id]); }
+    }
+  };
+  hit(e);
+  const up = () => { removeEventListener("pointermove", hit); removeEventListener("pointerup", up); removeEventListener("pointercancel", up); };
+  addEventListener("pointermove", hit); addEventListener("pointerup", up); addEventListener("pointercancel", up);
+}
 function startStroke(e) {
-  const pts = [], path = document.createElementNS(NS, "path"), svg = $("draft");
+  if (erasing) return eraseStroke(e);
+  const pts = [], svg = $("draft");
   if (!svg) return;
-  if (pen) path.style.stroke = pen;
-  svg.append(path);
+  let path, run, runK; // the live path of the current width; a change of pressure starts the next one, like inkRuns does when it is saved
+  const startRun = (k, from) => {
+    path = document.createElementNS(NS, "path"); path.style.strokeWidth = +(penSize * k).toFixed(2); if (pen) path.style.stroke = pen;
+    svg.append(path); run = from; runK = k;
+  };
   const add = (m) => {
     const q = toBoard(m.clientX, m.clientY), x = +q.x.toFixed(1), y = +q.y.toFixed(1), last = pts.at(-1);
     if (pts.length >= MAX_STROKE_POINTS || (last && Math.hypot(x - last[0], y - last[1]) < 1.5)) return; // close points add payload, not detail
-    pts.push([x, y]); path.setAttribute("d", pathD(pts));
+    const p = m.pointerType === "pen" && m.pressure > 0 ? +m.pressure.toFixed(2) : null, pt = p == null ? [x, y] : [x, y, p], k = p == null ? 1 : 0.3 + 0.35 * Math.round(p * 4);
+    pts.push(pt);
+    if (!path || (p != null && k !== runK)) startRun(k, last ? [last] : []);
+    run.push(pt); path.setAttribute("d", pathD(run));
   };
+  const feed = (m) => (m.getCoalescedEvents?.().length ? m.getCoalescedEvents() : [m]).forEach((c) => add(c)); // every sample the Pencil took since the last frame
   add(e);
   const up = () => {
-    removeEventListener("pointermove", add); removeEventListener("pointerup", up);
-    path.remove();
+    removeEventListener("pointermove", feed); removeEventListener("pointerup", up);
+    svg.replaceChildren(); // the saved drawing card replaces the live paths
     if (pts.length) saveStroke(pts);
   };
-  addEventListener("pointermove", add); addEventListener("pointerup", up);
+  addEventListener("pointermove", feed); addEventListener("pointerup", up);
 }
 function saveStroke(pts) {
-  const pad = 6, xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  const pad = Math.ceil(penSize * 0.85) + 4, xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]); // room for the widest pressure (1.7 x the size, half each side) and the round ends
   const minx = Math.min(...xs) - pad, miny = Math.min(...ys) - pad;
   const w = Math.max(1, Math.round(Math.max(...xs) + pad - minx)), h = Math.max(1, Math.round(Math.max(...ys) + pad - miny));
   // the card is as wide as the stroke (+ its padding), so it appears exactly where and how big it was drawn
-  const content = { w, h, width: w + 12, paths: [pts.map(([x, y]) => [+(x - minx).toFixed(1), +(y - miny).toFixed(1)])], ...(pen ? { color: pen } : {}) };
+  const content = { w, h, width: w + 12, paths: [pts.map(([x, y, p]) => [+(x - minx).toFixed(1), +(y - miny).toFixed(1), ...(p == null ? [] : [p])])], ...(pen ? { color: pen } : {}), ...(penSize === PEN_SIZES[0] ? {} : { size: penSize }) };
   commit(newElement("SKETCH", content, { x: Math.round(minx) - 6, y: Math.round(miny) - 6 }), { select: false });
 }
 $("note").onclick = () => add("CARD", { textContent: "" });
@@ -2415,8 +2550,21 @@ $("tools").addEventListener("click", (e) => { if (justDragged) { e.stopPropagati
 // images: picker, drag-and-drop from the desktop, or paste. The server checks type, real bytes and the 5 MB cap.
 const IMG_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 let picFor = null; // set while the file picker was opened from a link card
+const MAX_SIDE = 2048; // a phone photo is 4000+ px; the board never shows it that big, and Safari runs out of memory on a board full of them
+async function shrink(file) { // a big PNG/JPEG/WebP is redrawn at most MAX_SIDE px on its long side; GIFs (may be animated) and small pictures are left alone
+  if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) return file;
+  const bmp = await createImageBitmap(file).catch(() => null);
+  if (!bmp) return file;
+  const k = MAX_SIDE / Math.max(bmp.width, bmp.height);
+  if (k >= 1) { bmp.close(); return file; }
+  const c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height); bmp.close();
+  const out = await new Promise((r) => c.toBlob(r, file.type, 0.9));
+  return out && out.size < file.size ? new File([out], file.name, { type: file.type }) : file;
+}
 async function storeImage(file) { // checked and uploaded: the stored picture's id, or undefined (and the reason is shown)
   if (!IMG_TYPES.includes(file.type)) return void flash("Only PNG, JPEG, GIF or WebP images");
+  file = await shrink(file);
   if (file.size > 5 * 1024 * 1024) return void flash("That image is over 5 MB");
   const r = await fetch("/api/media", { method: "POST", headers: { "x-user-id": uid, "content-type": file.type }, body: file }).catch(() => null);
   if (!r?.ok) return void flash("Upload failed");

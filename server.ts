@@ -9,7 +9,7 @@ import { unfurl, fetchImage } from "./unfurl.ts";
 
 export type Element = {
   id: string;
-  elementType: "BOARD" | "CARD" | "COLUMN" | "LINE" | "LINK" | "SKETCH" | "SWATCH" | "TABLE" | "TASK_LIST" | "DOCUMENT" | "COMMENT_THREAD" | "IMAGE";
+  elementType: "BOARD" | "CARD" | "COLUMN" | "LINE" | "LINK" | "SKETCH" | "SWATCH" | "TABLE" | "TASK_LIST" | "DOCUMENT" | "COMMENT_THREAD" | "IMAGE" | "SHAPE";
   location: { parentId: string; section: "CANVAS" | "TRASH" | string; position: { score: number; x?: number; y?: number; [k: string]: unknown } };
   content: Record<string, unknown>;
   acl?: Record<string, number>; // root boards only; nested boards inherit
@@ -27,7 +27,7 @@ const READ = 1, WRITE = 2, ADMIN = 4, OWNER = READ | WRITE | ADMIN;
 const validUser = (u: unknown): u is string => typeof u === "string" && /^[\w-]{1,64}$/.test(u);
 
 // limits: one element is at most 200 KB of JSON (a stroke, a long note, a 100x20 table all fit); a connection can send 1000 actions in a burst (a big paste or import is one action per card), then 300 a second
-const TYPES = new Set(["BOARD", "CARD", "COLUMN", "LINE", "LINK", "SKETCH", "SWATCH", "TABLE", "TASK_LIST", "DOCUMENT", "COMMENT_THREAD", "IMAGE"]);
+const TYPES = new Set(["BOARD", "CARD", "COLUMN", "LINE", "LINK", "SKETCH", "SWATCH", "TABLE", "TASK_LIST", "DOCUMENT", "COMMENT_THREAD", "IMAGE", "SHAPE"]);
 const MAX_ELEMENT = 200_000, BURST = 1000, PER_SECOND = 300, MAX_UPLOADS_PER_MINUTE = 30, MAX_FETCHES_PER_MINUTE = 150, MAX_SEARCHES_PER_MINUTE = 120;
 const small = (v: unknown) => JSON.stringify(v).length <= MAX_ELEMENT;
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -307,6 +307,7 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
     }
     if (u.pathname === "/portable.js") return send(req, res, "./portable.js", "text/javascript", "no-cache"); // export / import
     if (u.pathname === "/icons.js") return send(req, res, "./icons.js", "text/javascript", "no-cache"); // the board icon library
+    if (u.pathname === "/shapes.js") return send(req, res, "./shapes.js", "text/javascript", "no-cache"); // shape geometry
     const reply = (status: number, body: unknown = {}) => void res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));
     // media ids are unguessable (a capability URL): <img> cannot send our identity header, so reads are public by id
     const media = /^\/api\/media\/([0-9a-f-]{36})$/.exec(u.pathname);

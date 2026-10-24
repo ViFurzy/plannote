@@ -95,7 +95,7 @@ function mdTable(c, out) {
 const linkUrl = (c) => safeUrl(c.url ?? "")?.href ?? String(c.url ?? ""); // a typed "example.com" becomes https://example.com/, like the link card's Open button
 function mdItem(e, o, out) {
   const c = e.content;
-  if (e.elementType === "CARD") { const t = c.html ? htmlToMd(c.html) : noteText(e); if (t) out.push(c.heading ? "### " + t.replace(/\s*\n\s*/g, " ") : t, ""); }
+  if (e.elementType === "CARD" || e.elementType === "SHAPE") { const t = c.html ? htmlToMd(c.html) : noteText(e); if (t) out.push(c.heading ? "### " + t.replace(/\s*\n\s*/g, " ") : t, ""); }
   else if (e.elementType === "TASK_LIST") { if (c.title) out.push(c.title); (c.tasks ?? []).forEach((t) => out.push(`- [${t.done ? "x" : " "}] ${t.text}`)); out.push(""); }
   else if (e.elementType === "TABLE") mdTable(c, out);
   else if (e.elementType === "SWATCH") out.push(String(c.color ?? ""), "");
@@ -108,7 +108,7 @@ function mdBoard(node, o, out = []) { out.push(`# ${node.title}`, ""); node.item
 const mdText = (node) => mdBoard(node, { names: imageNames(node) }).join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
 function txtItem(e, out) {
   const c = e.content;
-  if (e.elementType === "CARD") { const t = noteText(e); if (t) out.push(t, ""); }
+  if (e.elementType === "CARD" || e.elementType === "SHAPE") { const t = noteText(e); if (t) out.push(t, ""); }
   else if (e.elementType === "TASK_LIST") { if (c.title) out.push(c.title); (c.tasks ?? []).forEach((t) => out.push(`[${t.done ? "x" : " "}] ${t.text}`)); out.push(""); }
   else if (e.elementType === "SWATCH") out.push(String(c.color ?? ""), "");
   else if (e.elementType === "TABLE") { gridOf(c).forEach((r) => out.push(r.join("\t"))); out.push(""); }
@@ -125,7 +125,7 @@ async function docHtml(node) {
   for (const e of imageList(node)) if (!imgs.has(e.content.mediaId)) imgs.set(e.content.mediaId, await blobToDataUrl(await mediaBlob(e.content.mediaId)).catch(() => ""));
   const item = (e) => {
     const c = e.content;
-    if (e.elementType === "CARD") return c.html ? `<div>${cleanHtml(c.html)}</div>` : noteText(e) ? `<p>${esc(noteText(e)).replace(/\n/g, "<br>")}</p>` : "";
+    if (e.elementType === "CARD" || e.elementType === "SHAPE") return c.html ? `<div>${cleanHtml(c.html)}</div>` : noteText(e) ? `<p>${esc(noteText(e)).replace(/\n/g, "<br>")}</p>` : "";
     if (e.elementType === "TASK_LIST") return (c.title ? `<p><b>${esc(c.title)}</b></p>` : "") + `<ul style="list-style:none">${(c.tasks ?? []).map((t) => `<li>${t.done ? "&#9745;" : "&#9744;"} ${esc(t.text)}</li>`).join("")}</ul>`;
     if (e.elementType === "SWATCH" && HEX.test(c.color ?? "")) return `<p><span style="background:${c.color};color:${c.color}">&#9608;&#9608;&#9608;</span> ${c.color}</p>`;
     if (e.elementType === "TABLE") return `<table border="1" style="border-collapse:collapse">${gridOf(c).map((r, i) => `<tr>${r.map((v) => `<${i ? "td" : "th"}>${esc(v)}</${i ? "td" : "th"}>`).join("")}</tr>`).join("")}</table>`;
