@@ -1400,17 +1400,18 @@ await test("accounts: the login page, sign up, log out and in; sharing a board b
   const ctxs: BrowserContext[] = [];
   const open = async () => { const c = await browser.newContext({ viewport: { width: 1400, height: 900 } }); ctxs.push(c); const p = await c.newPage(); p.setDefaultTimeout(8000); await p.goto(AURL + "/"); return p; };
   const live = (p: Page) => p.waitForFunction(() => (document.getElementById("st") as HTMLElement)?.dataset.state === "live");
+  const toCanvas = async (p: Page) => { await p.click("#ph-canvas"); await p.waitForFunction(() => document.getElementById("phome")!.hidden); }; // logging in lands on the boards home; these tests work on the canvas
   const form = async (p: Page, name: string, pw: string) => { await p.fill("#name", name); await p.fill("#pw", pw); await p.click("#go"); };
   try {
     const alice = await open(), bob = await open();
     await alice.waitForSelector("#f");
-    await alice.click("#swap"); await form(alice, "alice", "correct horse"); await live(alice);
+    await alice.click("#swap"); await form(alice, "alice", "correct horse"); await live(alice); await toCanvas(alice);
     assert.equal(await alice.evaluate(() => (window as any).ACCOUNT), "alice");
     await alice.click("#gearBtn"); await alice.click("#outBtn");
     await alice.waitForSelector("#f");
     await form(alice, "alice", "wrong password");
     await alice.waitForFunction(() => /Wrong name or password/.test(document.getElementById("err")!.textContent!));
-    await form(alice, "alice", "correct horse"); await live(alice);
+    await form(alice, "alice", "correct horse"); await live(alice); await toCanvas(alice);
 
     await bob.click("#swap"); await form(bob, "bob", "correct horse"); await live(bob);
 
@@ -1435,6 +1436,105 @@ await test("accounts: the login page, sign up, log out and in; sharing a board b
     await bob.click("#gearBtn"); await bob.click("#shareBtn");
     assert.equal(await bob.locator("#shareadd").isDisabled(), true, "bob can edit but not change who has access");
   } finally { for (const c of ctxs) await c.close(); await as.close(); }
+});
+
+// welcome page, boards home (tile grid) and profile sheet (animated sections): once with a mouse and keyboard, once on a touch phone
+await test("accounts: welcome page, boards home, profile sheet with animated sections, on desktop and on a touch phone", async () => {
+  const as = createServer(3996, ":memory:", { accounts: true }), AURL = "http://localhost:3996";
+  const ctxs: BrowserContext[] = [];
+  const live = (p: Page) => p.waitForFunction(() => (document.getElementById("st") as HTMLElement)?.dataset.state === "live");
+  const shown = (p: Page, sel: string) => p.waitForFunction((s) => { const n = document.querySelector(s) as HTMLElement | null; return !!n && !n.hidden && n.getBoundingClientRect().width > 0; }, sel);
+  const gone = (p: Page, sel: string) => p.waitForFunction((s) => (document.querySelector(s) as HTMLElement).hidden, sel);
+  const section = (p: Page, name: string) => p.locator("#psheet summary", { hasText: name });
+  const settled = (p: Page, i: number) => p.waitForFunction((n) => !(document.querySelectorAll("#psheet details")[n] as any)._a, i);
+  const size = async (p: Page, sel: string) => (await p.locator(sel).first().boundingBox())!;
+  try {
+    // --- desktop: mouse and keyboard ---
+    const c = await browser.newContext({ viewport: { width: 1400, height: 900 } }); ctxs.push(c);
+    const p = await c.newPage(); p.setDefaultTimeout(8000);
+    await p.goto(AURL + "/"); await p.waitForSelector("#f");
+    assert.match(await p.title(), /Plannote/); assert.ok(await p.locator(".pitch h2").isVisible(), "welcome: the story panel sits beside the form");
+    await p.click("#swap"); assert.equal(await p.locator("#title").innerText(), "Create account");
+    await p.fill("#name", "maja"); await p.fill("#pw", "correct horse"); await p.click("#show");
+    assert.equal(await p.locator("#pw").getAttribute("type"), "text", "the password can be shown");
+    await p.click("#go"); await live(p);
+
+    await shown(p, "#phome");
+    assert.match(await p.locator("#ph-hi").innerText(), /^Good (morning|afternoon|evening), maja$/);
+    assert.match(await p.locator("#ph-res").innerText(), /Make your first board/, "a new user sees the empty state");
+    await p.click("#ph-new"); await gone(p, "#phome"); await p.waitForSelector("#canvas > .board");
+    await p.keyboard.type("Trip to Lisbon"); await p.keyboard.press("Escape"); await settle(p, 600);
+    assert.equal(await p.locator("#ph-res .ph-card").count(), 0, "(the canvas is showing, not the home page)");
+    await p.click("#homeBtn"); await shown(p, "#phome"); await p.waitForSelector(".ph-card");
+    assert.equal(await p.locator(".ph-card .ph-meta b").first().innerText(), "Trip to Lisbon", "the new board is a tile");
+    assert.equal(await p.locator(".ph-new").count(), 1, "a New board tile leads the grid");
+    await p.fill("#ph-q", "zzz"); assert.match(await p.locator("#ph-res").innerText(), /No board called “zzz”/);
+    await p.fill("#ph-q", "lisb"); assert.equal(await p.locator(".ph-card").count(), 1); await p.fill("#ph-q", "");
+    await p.click(".ph-card .open"); await gone(p, "#phome"); await settle(p, 400);
+    assert.ok((p.url().split("#")[1] ?? "").length > 0, "opening a tile opens that board");
+
+    await p.click("#meBtn"); await shown(p, "#psheet");
+    assert.equal(await p.evaluate(() => document.activeElement?.id), "pn-close", "focus moves into the sheet");
+    assert.equal(await p.locator("#psheet details").nth(1).evaluate((d: any) => d.open), false, "Appearance starts folded");
+    await section(p, "Appearance").click();
+    assert.equal(await p.locator("#psheet details").nth(1).evaluate((d: any) => !!d._a), true, "the section animates open");
+    await settled(p, 1);
+    assert.ok((await size(p, "#psheet details:nth-of-type(2) .pn-sec")).height > 40, "and ends at full height");
+    await p.click('#pn-theme [data-v="dark"]'); assert.equal(await p.evaluate(() => document.documentElement.dataset.theme), "dark");
+    await p.click('#pn-theme [data-v="light"]');
+    await section(p, "Appearance").click(); await p.waitForFunction(() => !(document.querySelectorAll("#psheet details")[1] as any).open);
+
+    await p.click('#psheet [data-mode="emoji"]'); await p.locator("#pn-em button").nth(3).click(); await p.click('#pn-sw button[title="rose"]'); await p.fill("#pn-display", "Maja K");
+    assert.equal(await p.locator("#pn-save").isVisible(), true, "edits raise the save bar");
+    await p.click("#pn-do-save"); await p.waitForFunction(() => document.querySelector(".pn-toast.show")?.textContent?.startsWith("Saved"));
+    assert.equal(await p.locator("#meBtn .pn-av").innerText(), "☕"); assert.equal(await p.locator("#pn-title").innerText(), "Maja K");
+    assert.equal(await p.locator("#pn-save").isVisible(), false, "saved: the bar goes");
+    await p.keyboard.press("Escape"); await gone(p, "#psheet");
+    assert.equal(await p.evaluate(() => document.activeElement?.id), "meBtn", "focus goes back to where it was");
+    await p.reload(); await live(p);
+    assert.equal(await p.locator("#meBtn .pn-av").innerText(), "☕", "the picture is kept on the server");
+
+    await p.click("#meBtn"); await section(p, "Security").click(); await p.click("#pn-pw-open");
+    await p.fill("#pn-pw [name=cur]", "nope nope nope"); await p.fill("#pn-pw [name=next]", "a new password"); await p.fill("#pn-pw [name=rep]", "a new password"); await p.click("#pn-pw .primary");
+    await p.waitForFunction(() => /Wrong password/.test(document.querySelector("#pn-pw .pn-err")!.textContent!));
+    await p.fill("#pn-pw [name=cur]", "correct horse"); await p.click("#pn-pw .primary"); await gone(p, "#pn-pw");
+    await section(p, "Account").click(); await p.click("#pn-del-open");
+    assert.equal(await p.locator("#pn-del .pn-btn.danger").isDisabled(), true, "delete stays off until the name is typed");
+    await p.fill("#pn-del [name=who]", "maja"); await p.fill("#pn-del [name=pw]", "a new password");
+    await p.click("#pn-del .pn-btn.danger"); await p.waitForSelector("#f");
+    await p.fill("#name", "maja"); await p.fill("#pw", "a new password"); await p.click("#go");
+    await p.waitForFunction(() => /Wrong name or password/.test(document.getElementById("err")!.textContent!));
+
+    // --- a touch phone ---
+    const m = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 }); ctxs.push(m);
+    const t = await m.newPage(); t.setDefaultTimeout(8000);
+    await t.goto(AURL + "/"); await t.waitForSelector("#f");
+    assert.equal(await t.locator(".pitch .feat").isVisible(), false, "phone: the story shrinks to a header");
+    assert.ok((await size(t, "#go")).height >= 44, "the button is a touch target");
+    assert.ok(await t.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "welcome: nothing sideways");
+    await t.tap("#swap"); await t.fill("#name", "zosia"); await t.fill("#pw", "correct horse"); await t.tap("#go"); await live(t);
+    await shown(t, "#phome");
+    assert.ok(await t.evaluate(() => document.getElementById("phome")!.scrollWidth <= innerWidth), "home: nothing sideways");
+    await t.tap("#ph-new"); await gone(t, "#phome"); await t.waitForSelector("#canvas > .board");
+    await t.keyboard.type("Garden"); await t.keyboard.press("Escape"); await settle(t, 600);
+    const hb = await size(t, "#homeBtn"); assert.ok(hb.width >= 44 && hb.height >= 44 && hb.x >= 0 && hb.x + hb.width <= 390, "the home button is a 44px target inside the screen");
+    assert.equal(await t.locator("#meBtn").isVisible(), false, "phone: the full top bar leaves the avatar out");
+    await t.tap("#gearBtn"); await t.tap("#profileItem"); await shown(t, "#psheet"); await t.tap("#pn-close"); await gone(t, "#psheet"); // Profile is in the gear menu instead
+    await t.tap("#homeBtn"); await shown(t, "#phome"); await t.waitForSelector(".ph-card");
+    const tile = await size(t, ".ph-card"), cols = await t.evaluate(() => getComputedStyle(document.querySelector(".ph-grid")!).gridTemplateColumns.split(" ").length);
+    assert.ok(cols === 2 && tile.width > 140, "phone: two tiles per row");
+    await t.tap("#ph-me"); await shown(t, "#psheet");
+    const sh = await size(t, ".pn-sheet");
+    assert.ok(sh.width >= 389 && Math.abs(sh.y + sh.height - 844) < 2, "phone: the sheet rises from the bottom edge");
+    assert.ok((await size(t, "#pn-close")).width >= 44 && (await size(t, "#psheet summary")).height >= 44, "close and section headers are touch targets");
+    await t.locator("#psheet summary", { hasText: "Appearance" }).tap();
+    assert.equal(await t.locator("#psheet details").nth(1).evaluate((d: any) => !!d._a), true, "touch: the section animates open");
+    await settled(t, 1);
+    await t.tap('#pn-theme [data-v="dark"]'); assert.equal(await t.evaluate(() => document.documentElement.dataset.theme), "dark");
+    await t.tap("#pn-close"); await gone(t, "#psheet");
+    await t.tap(".ph-card .open"); await gone(t, "#phome"); await settle(t, 400);
+    assert.ok((t.url().split("#")[1] ?? "").length > 0, "touch: a tap opens the board");
+  } finally { for (const x of ctxs) await x.close(); await as.close(); }
 });
 
 await browser.close(); await srv.close(); pages.close(); rmSync(shots, { recursive: true, force: true });

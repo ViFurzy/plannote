@@ -1,4 +1,4 @@
-// Home-Screen icons: the board glyph (four rounded squares) in white on the accent blue. Run: node scripts/build-pwa-icons.mjs
+// Home-Screen icons: the Plannote glyph (four rounded squares, two of them softer) in white on orange. Keep in step with public/favicon.svg. Run: node scripts/build-pwa-icons.mjs
 import { deflateSync, crc32 } from "node:zlib";
 import { writeFileSync } from "node:fs";
 const png = (n) => {
@@ -10,10 +10,10 @@ const png = (n) => {
       let hit = 0;
       for (let j = 0; j < SS; j++) for (let i = 0; i < SS; i++) {
         const X = (x + (i + 0.5) / SS) / s, Y = (y + (j + 0.5) / SS) / s;
-        if ([[136, 136], [264, 136], [136, 264], [264, 264]].some(([a, b]) => inSq(X, Y, a, b, 112, 28))) hit++;
+        for (const [a, b, w] of [[136, 136, 1], [264, 136, 0.6], [136, 264, 0.6], [264, 264, 1]]) if (inSq(X, Y, a, b, 112, 28)) hit += w; // w: the softer squares
       }
       const t = hit / (SS * SS), o = y * (n * 3 + 1) + 1 + x * 3;
-      [47, 91, 216].forEach((c, k) => (rows[o + k] = Math.round(c + (255 - c) * t)));
+      [239, 108, 26].forEach((c, k) => (rows[o + k] = Math.round(c + (255 - c) * t)));
     }
   }
   const chunk = (t, d) => { const b = Buffer.concat([Buffer.from(t), d]), l = Buffer.alloc(4), c = Buffer.alloc(4); l.writeUInt32BE(d.length); c.writeUInt32BE(crc32(b)); return Buffer.concat([l, b, c]); };

@@ -64,6 +64,7 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
   if (!(db.prepare("PRAGMA table_info(media)").all() as { name: string }[]).some((c) => c.name === "at")) db.exec("ALTER TABLE media ADD COLUMN at INTEGER"); // upload time, for the orphan sweep
   db.prepare("UPDATE media SET at = ? WHERE at IS NULL").run(Date.now());
   db.exec("CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY, pw TEXT NOT NULL)");
+  for (const col of ["display", "avatar"]) if (!(db.prepare("PRAGMA table_info(users)").all() as { name: string }[]).some((c) => c.name === col)) db.exec(`ALTER TABLE users ADD COLUMN ${col} TEXT`); // profile: shown name and picture
   db.exec("CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user TEXT NOT NULL, at INTEGER NOT NULL)"); // token = sha256 of the cookie value
   const insertMedia = db.prepare("INSERT INTO media (id, mime, data, owner, at) VALUES (?, ?, ?, ?, ?)");
   const getMedia = db.prepare("SELECT mime, data FROM media WHERE id = ?");
@@ -150,6 +151,37 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
     return row && Date.now() - row.at < SESSION_MS ? row.user : undefined;
   };
   const userExists = (name: string) => !!db.prepare("SELECT 1 FROM users WHERE name = ?").get(name);
+  // profile: a shown name and a picture (a colour plus the first letter, or one emoji from a short list). Without a choice the colour comes from the name, so people differ at once.
+  const AVATAR_COLORS = ["teal", "orange", "sage", "sand", "slate", "rose", "lilac"], AVATAR_EMOJI = ["🌿", "🎨", "📚", "☕", "🚀", "🐙", "🌙", "🎧", "🍋", "🧩", "🦊", "🌊"];
+  const profileOf = (name: string) => {
+    const r = db.prepare("SELECT display, avatar FROM users WHERE name = ?").get(name) as { display: string | null; avatar: string | null } | undefined;
+    let a: { color?: string; mode?: string; emoji?: string } = {};
+    try { a = JSON.parse(r?.avatar ?? "{}"); } catch { /* the default picture */ }
+    return { name, display: r?.display || name, avatar: { color: AVATAR_COLORS.includes(a.color!) ? a.color! : AVATAR_COLORS[parseInt(sha(name).slice(0, 4), 16) % AVATAR_COLORS.length], mode: a.mode === "emoji" ? "emoji" : "initial", emoji: AVATAR_EMOJI.includes(a.emoji!) ? a.emoji! : AVATAR_EMOJI[0] } };
+  };
+  const readJson = (req: IncomingMessage) => new Promise<any>((ok) => {
+    let raw = "";
+    req.on("data", (c: Buffer) => { raw += c; if (raw.length > 2000) req.destroy(); });
+    req.on("end", () => { try { ok(JSON.parse(raw)); } catch { ok(null); } });
+    req.on("error", () => ok(null));
+  });
+  // deleting an account takes its Home with everything under it (Trash included), its seat on other boards, its sessions and open sockets
+  const deleteAccount = (user: string) => {
+    batch(() => {
+      const home = homeOf(user), seen = new Set([home]), gone = [els.get(home)!];
+      const walk = (id: string) => { for (const pid of [id, id + "-trash"]) for (const e of children.get(pid) ?? []) if (!seen.has(e.id)) { seen.add(e.id); gone.push(e); walk(e.id); } };
+      walk(home);
+      for (const e of gone) { els.delete(e.id); children.get(e.location.parentId)?.delete(e); children.delete(e.id); children.delete(e.id + "-trash"); db.prepare("DELETE FROM elements WHERE id = ?").run(e.id); }
+      for (const e of els.values()) if (e.acl && user in e.acl) { delete e.acl[user]; save(e); }
+      db.prepare("DELETE FROM sessions WHERE user = ?").run(user);
+      db.prepare("DELETE FROM users WHERE name = ?").run(user);
+    });
+    dropSockets(user);
+  };
+  // end live connections of a user, except those opened with the session whose sha256 is `keep` (a session that was just removed must not go on reading and writing)
+  const dropSockets = (user: string, keep?: string) => {
+    for (const s of io.sockets.sockets.values()) if (s.data.userId === user && (!keep || sha(/(?:^|; )sid=([\w-]{43})/.exec(s.handshake.headers.cookie ?? "")?.[1] ?? "") !== keep)) s.disconnect(true);
+  };
   // who is asking: the session's user with accounts, else the claimed id
   const identify = (cookie: string | undefined, claimed: unknown) => (opts.accounts ? sessionUser(cookie) : validUser(claimed) ? claimed : undefined);
 
@@ -308,10 +340,12 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
     if (u.pathname === "/portable.js") return send(req, res, "./portable.js", "text/javascript", "no-cache"); // export / import
     if (u.pathname === "/icons.js") return send(req, res, "./icons.js", "text/javascript", "no-cache"); // the board icon library
     if (u.pathname === "/manifest.webmanifest") return send(req, res, "./public/manifest.webmanifest", "application/manifest+json", "no-cache"); // "Add to Home Screen"
+    if (u.pathname === "/pwa/favicon.svg") return send(req, res, "./public/favicon.svg", "image/svg+xml", "public, max-age=86400");
     const pwa = /^\/pwa\/(icon-192|icon-512|apple-touch-icon)\.png$/.exec(u.pathname);
     if (pwa) return send(req, res, `./public/${pwa[1]}.png`, "image/png", "public, max-age=86400");
     if (u.pathname === "/templates.js") return send(req, res, "./templates.js", "text/javascript", "no-cache"); // board templates
     if (u.pathname === "/shapes.js") return send(req, res, "./shapes.js", "text/javascript", "no-cache"); // shape geometry
+    if (u.pathname === "/account.js") return send(req, res, "./account.js", "text/javascript", "no-cache"); // boards home page and profile sheet (with logins on)
     const reply = (status: number, body: unknown = {}) => void res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));
     // media ids are unguessable (a capability URL): <img> cannot send our identity header, so reads are public by id
     const media = /^\/api\/media\/([0-9a-f-]{36})$/.exec(u.pathname);
@@ -330,6 +364,26 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
         if (token) db.prepare("DELETE FROM sessions WHERE token = ?").run(sha(token));
         res.setHeader("set-cookie", cookie("", 0));
         return reply(200);
+      }
+      if (u.pathname === "/api/auth/password" || u.pathname === "/api/auth/logout-all" || u.pathname === "/api/auth/delete") { // all three need the session, the last two the current password
+        const me = sessionUser(req.headers.cookie), token = /(?:^|; )sid=([\w-]{43})/.exec(req.headers.cookie ?? "")?.[1];
+        if (!me || !token) return reply(401);
+        void (async () => {
+          try {
+            if (u.pathname === "/api/auth/logout-all") { const n = Number(db.prepare("DELETE FROM sessions WHERE user = ? AND token != ?").run(me, sha(token)).changes); dropSockets(me, sha(token)); return reply(200, { signedOut: n }); } // every device but this one
+            const b = await readJson(req);
+            if (throttled("pw:" + me, 5)) return reply(429, { error: "Too many tries, wait a minute." });
+            const [salt, want] = (db.prepare("SELECT pw FROM users WHERE name = ?").get(me) as { pw: string }).pw.split(":");
+            if (!timingSafeEqual(await scryptOf(String(b?.password ?? ""), Buffer.from(salt, "hex")), Buffer.from(want, "hex"))) return reply(401, { error: "Wrong password." });
+            if (u.pathname === "/api/auth/delete") { deleteAccount(me); res.setHeader("set-cookie", cookie("", 0)); return reply(200); }
+            const next = String(b?.next ?? ""), fresh = randomBytes(16);
+            if (next.length < 8 || next.length > 200) return reply(400, { error: "New password: at least 8 characters." });
+            db.prepare("UPDATE users SET pw = ? WHERE name = ?").run(fresh.toString("hex") + ":" + (await scryptOf(next, fresh)).toString("hex"), me);
+            db.prepare("DELETE FROM sessions WHERE user = ? AND token != ?").run(me, sha(token)); dropSockets(me, sha(token)); // a stolen session must not outlive a password change
+            reply(200);
+          } catch { reply(400, { error: "Bad request." }); }
+        })();
+        return;
       }
       const signup = u.pathname === "/api/auth/signup";
       if (!signup && u.pathname !== "/api/auth/login") return reply(404);
@@ -361,9 +415,27 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
     if (!user) return reply(401);
     if (u.pathname === "/api/media" && req.method === "POST") return upload(req, res, user);
     if (u.pathname === "/api/users/me/app-init") return reply(200, { homeBoardId: homeOf(user) });
+    if (u.pathname === "/api/users/me/profile" && opts.accounts) {
+      if (req.method === "GET") return reply(200, { ...profileOf(user), devices: (db.prepare("SELECT COUNT(*) AS n FROM sessions WHERE user = ? AND at > ?").get(user, Date.now() - SESSION_MS) as { n: number }).n });
+      if (req.method === "PUT") {
+        void readJson(req).then((b) => {
+          const display = String(b?.display ?? "").replace(/[\u0000-\u001f\u007f]/g, "").trim();
+          if (display.length > 32 || !AVATAR_COLORS.includes(b?.color) || !["initial", "emoji"].includes(b?.mode) || !AVATAR_EMOJI.includes(b?.emoji)) return reply(400, { error: "Bad profile." });
+          db.prepare("UPDATE users SET display = ?, avatar = ? WHERE name = ?").run(display || null, JSON.stringify({ color: b.color, mode: b.mode, emoji: b.emoji }), user);
+          reply(200, profileOf(user));
+        });
+        return;
+      }
+    }
     if (u.pathname === "/api/tree") { // every board this user can read (not in a Trash), for the boards panel: [{id, title, parent, icon, color}]
       const boards = [...els.values()].filter((e) => e.elementType === "BOARD" && !inTrash(e) && can(user, e.id, READ));
-      return reply(200, { home: homeOf(user), boards: boards.map((b) => ({ id: b.id, title: String(b.content.title ?? ""), parent: boardOf(b.location.parentId), icon: b.content.icon ?? null, color: b.content.color ?? null, owner: b.acl && b.content.rootType !== "HOME" ? Object.entries(b.acl).find(([, p]) => p === OWNER)?.[0] ?? null : null })) }); // owner: only boards that carry their own acl (shared ones)
+      const people = new Set([user]), rows = boards.map((b) => {
+        const shared = b.acl && b.content.rootType !== "HOME", kids = [...(children.get(b.id) ?? [])], members = shared ? Object.keys(b.acl!) : [];
+        members.forEach((m) => people.add(m));
+        return { id: b.id, title: String(b.content.title ?? ""), parent: boardOf(b.location.parentId), icon: b.content.icon ?? null, color: b.content.color ?? null, owner: shared ? Object.entries(b.acl!).find(([, p]) => p === OWNER)?.[0] ?? null : null, // owner: only boards that carry their own acl (shared ones)
+          members, cards: kids.length, at: Math.max(b.meta.modifiedTime ?? 0, ...kids.map((k) => k.meta.modifiedTime ?? 0)) }; // members, cards and at feed the tiles on the boards home page
+      });
+      return reply(200, { home: homeOf(user), boards: rows, people: Object.fromEntries([...people].map((n) => [n, profileOf(n)])) });
     }
     if (u.pathname === "/api/search") { // text search across every board this user can read: [{id, board, boardTitle, type, snippet}]
       const now = Date.now(), mine = (searched.get(user) ?? []).filter((t) => now - t < 60_000), q = (u.searchParams.get("q") ?? "").trim().toLowerCase().slice(0, 100);

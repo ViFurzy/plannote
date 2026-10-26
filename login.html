@@ -3,41 +3,101 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>boardsync: log in</title>
+<title>Plannote: log in</title>
+<link rel="icon" type="image/svg+xml" href="/pwa/favicon.svg"><link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="Plannote">
+<script>try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch { /* the system's choice */ }</script>
 <style>
-  :root { color-scheme: light dark; --bg: #eceef2; --surface: #fff; --ink: #161a21; --muted: #667085; --line: #d6dae3; --accent: #2f5bd8; --bad: #d4483b; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #101318; --surface: #1a1e25; --ink: #e7eaf0; --muted: #98a1b0; --line: #2c323c; --accent: #7d98ff; --bad: #ff7a6b; } }
+  :root { color-scheme: light dark; --bg: #FFFCF0; --pitch: #e6ecfc; --surface: #fff; --ink: #161a21; --muted: #667085; --line: #d6dae3; --accent: #2f5bd8; --accent-soft: #e6ecfc; --orange: #ef6c1a; --bad: #d4483b; --tint-sand: #f1e5cf; --tint-teal: #d6e8ec; --serif: ui-serif, Georgia, "Times New Roman", serif; }
+  :root[data-theme=light] { color-scheme: light; }
+  :root[data-theme=dark] { color-scheme: dark; --bg: #262B2B; --pitch: #1d2842; --surface: #333847; --ink: #e7eaf0; --muted: #98a1b0; --line: #4b5060; --accent: #7d98ff; --accent-soft: #1d2842; --bad: #ff7a6b; --tint-sand: #3d3426; --tint-teal: #24383d; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme=light]) { --bg: #262B2B; --pitch: #1d2842; --surface: #333847; --ink: #e7eaf0; --muted: #98a1b0; --line: #4b5060; --accent: #7d98ff; --accent-soft: #1d2842; --bad: #ff7a6b; --tint-sand: #3d3426; --tint-teal: #24383d; } }
   * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100dvh; display: grid; place-items: center; background: var(--bg); color: var(--ink); font: 15px system-ui, sans-serif; }
-  form { width: min(360px, calc(100vw - 32px)); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 24px; display: grid; gap: 12px; }
-  h1 { margin: 0 0 4px; font-size: 20px; }
-  label { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
-  input { font: inherit; font-size: 16px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
-  button { font: inherit; padding: 10px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; cursor: pointer; }
-  button.link { background: none; color: var(--accent); padding: 4px; }
-  #err { color: var(--bad); min-height: 1.2em; font-size: 13px; }
+  body { margin: 0; min-height: 100dvh; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, sans-serif; }
+  .split { display: grid; grid-template-columns: 1.1fr 1fr; min-height: 100dvh; }
+  .pitch { background: var(--pitch); padding: 48px 56px; display: grid; align-content: center; gap: 28px; }
+  .logo { display: inline-flex; align-items: center; gap: 10px; font: 700 22px var(--serif); letter-spacing: -.01em; }
+  .mark { width: 34px; height: 34px; border-radius: 9px; background: var(--orange); display: grid; place-items: center; }
+  .mark svg { width: 24px; height: 24px; fill: #fff; }
+  .pitch h2 { margin: 0; font: 600 44px/1.08 var(--serif); letter-spacing: -.02em; }
+  .pitch h2 em { color: var(--orange); }
+  .mini { position: relative; height: 150px; }
+  .mini i { position: absolute; border-radius: 10px; box-shadow: 0 6px 18px rgb(60 40 10 / .14); }
+  .mini svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .feat { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+  .feat li { display: grid; grid-template-columns: 40px 1fr; gap: 12px; align-items: center; }
+  .feat .ic { width: 40px; height: 40px; border-radius: 12px; background: var(--surface); display: grid; place-items: center; box-shadow: 0 1px 3px rgb(60 40 10 / .12); color: var(--accent); }
+  .feat .ic svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .feat small { display: block; color: var(--muted); }
+  .side { display: grid; place-items: center; padding: 32px 20px; }
+  form { width: min(380px, 100%); display: grid; gap: 14px; }
+  h1 { margin: 0; font: 600 30px/1.15 var(--serif); }
+  .lead { margin: 0; color: var(--muted); }
+  .tabs { display: flex; padding: 3px; gap: 2px; background: color-mix(in srgb, var(--line) 45%, transparent); border-radius: 10px; }
+  .tabs button { flex: 1; min-height: 40px; border: 0; background: none; border-radius: 8px; color: var(--muted); font: inherit; cursor: pointer; }
+  .tabs button.on { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgb(0 0 0 / .12); }
+  .field { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
+  input { font: inherit; font-size: 16px; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); width: 100%; outline: none; }
+  input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .pwrow { position: relative; }
+  .pwrow input { padding-right: 60px; }
+  #show { position: absolute; right: 4px; top: 4px; height: 36px; min-width: 52px; border: 0; background: none; color: var(--accent); font: inherit; font-size: 13px; border-radius: 6px; cursor: pointer; }
+  #err { color: var(--bad); min-height: 1.3em; font-size: 13px; }
+  #go { font: inherit; font-weight: 600; min-height: 46px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; cursor: pointer; }
+  #go:disabled { opacity: .6; cursor: progress; }
+  .fine { color: var(--muted); font-size: 12px; text-align: center; }
+  @media (max-width: 860px) {
+    .split { grid-template-columns: 1fr; min-height: 0; }
+    .pitch { padding: 22px 20px; gap: 10px; align-content: start; }
+    .pitch h2 { font-size: 26px; }
+    .pitch .mini, .pitch .feat { display: none; }
+    .side { align-items: start; padding-top: 24px; }
+  }
 </style>
 </head>
 <body>
-<form id="f">
-  <h1 id="title">Log in</h1>
-  <label>Name<input id="name" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required minlength="3" maxlength="32"></label>
-  <label>Password<input id="pw" name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="200"></label>
-  <div id="err" role="alert"></div>
-  <button id="go">Log in</button>
-  <button type="button" class="link" id="swap">No account yet? Create one</button>
-</form>
+<main class="split">
+  <section class="pitch" aria-label="About Plannote">
+    <div class="logo"><span class="mark"><svg viewBox="0 0 64 64"><rect x="14" y="14" width="16" height="16" rx="4"/><rect x="34" y="14" width="16" height="16" rx="4" opacity=".6"/><rect x="14" y="34" width="16" height="16" rx="4" opacity=".6"/><rect x="34" y="34" width="16" height="16" rx="4"/></svg></span>Plannote</div>
+    <h2>Your ideas, <em>pinned</em> in one place.</h2>
+    <div class="mini" aria-hidden="true">
+      <svg viewBox="0 0 400 150" preserveAspectRatio="none"><path d="M120 50 C170 50 150 100 210 100 M270 100 C310 100 300 55 330 55" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="5 5"/></svg>
+      <i style="left:2%;top:8%;width:30%;height:56px;background:var(--tint-sand)"></i>
+      <i style="left:36%;top:48%;width:30%;height:70px;background:var(--surface)"></i>
+      <i style="left:72%;top:10%;width:26%;height:60px;background:var(--tint-teal)"></i>
+    </div>
+    <ul class="feat">
+      <li><span class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg></span><span><b>Boards inside boards</b><small>Plan a trip, a project, a whole year.</small></span></li>
+      <li><span class="ic"><svg viewBox="0 0 24 24"><path d="M4 20l4-1 11-11a2.1 2.1 0 0 0-3-3L5 16z"/></svg></span><span><b>Pencil and touch ready</b><small>Draw on iPad, type on a laptop.</small></span></li>
+      <li><span class="ic"><svg viewBox="0 0 24 24"><path d="M7 7h12l-3-3M17 17H5l3 3"/></svg></span><span><b>Share live</b><small>Friends see changes as you make them.</small></span></li>
+    </ul>
+  </section>
+  <section class="side">
+    <form id="f">
+      <div><h1 id="title">Log in</h1><p class="lead" id="lead">Pick up where you left off.</p></div>
+      <div class="tabs" role="group" aria-label="Log in or create an account"><button type="button" class="on" id="tab-login">Log in</button><button type="button" id="swap">Create account</button></div>
+      <div class="field"><label for="name">Name</label><input id="name" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required minlength="3" maxlength="32"></div>
+      <div class="field"><label for="pw">Password</label><div class="pwrow"><input id="pw" name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="200"><button type="button" id="show" aria-controls="pw">Show</button></div></div>
+      <div id="err" role="alert"></div>
+      <button id="go">Log in</button>
+      <div class="fine">Your boards stay private until you share them.</div>
+    </form>
+  </section>
+</main>
 <script>
 let signup = false;
 const $ = (id) => document.getElementById(id);
 function mode(on) {
   signup = on;
   $("title").textContent = $("go").textContent = on ? "Create account" : "Log in";
-  $("swap").textContent = on ? "Have an account? Log in" : "No account yet? Create one";
+  $("lead").textContent = on ? "Make your own space. It takes a minute." : "Pick up where you left off.";
+  $("tab-login").classList.toggle("on", !on); $("swap").classList.toggle("on", on);
   $("pw").autocomplete = on ? "new-password" : "current-password";
   $("err").textContent = "";
 }
-$("swap").onclick = () => mode(!signup);
+$("tab-login").onclick = () => mode(false);
+$("swap").onclick = () => mode(true);
+$("show").onclick = () => { const hide = $("pw").type === "password"; $("pw").type = hide ? "text" : "password"; $("show").textContent = hide ? "Hide" : "Show"; };
 $("f").onsubmit = async (e) => {
   e.preventDefault();
   $("go").disabled = true;

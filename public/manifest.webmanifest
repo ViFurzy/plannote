@@ -1,6 +1,6 @@
 {
-  "name": "boardsync",
-  "short_name": "boardsync",
+  "name": "Plannote",
+  "short_name": "Plannote",
   "description": "Boards for notes, pictures, links and drawings, shared live",
   "start_url": "/",
   "scope": "/",

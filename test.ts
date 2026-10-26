@@ -384,6 +384,40 @@ console.log("ok: home boards, no squatting, acl grant/revoke, READ/WRITE/ADMIN, 
   assert.equal(await join(sb, "shared1"), 200);
   const note = { id: "n-shared", elementType: "CARD", location: { parentId: "shared1", section: "CANVAS", position: { score: 1, x: 0, y: 0 } }, content: { textContent: "hi" }, meta: { versionId: "v1", modifiedTime: 1 } };
   assert.equal(await act(sb, { type: "ELEMENT_CREATE", ...note }), 200, "bob can edit it");
+  // profile: a shown name and a picture, seen by the people you share with
+  const put = (p: string, body: unknown, cookie: string) => fetch(base + p, { method: "PUT", headers: { "content-type": "application/json", cookie }, body: JSON.stringify(body) });
+  const mine = (await get("/api/users/me/profile", ca)).body;
+  assert.equal(mine.display, "alice"); assert.equal(mine.avatar.mode, "initial"); assert.ok(mine.devices >= 1);
+  assert.equal((await put("/api/users/me/profile", { display: "Ala 🙂", color: "rose", mode: "emoji", emoji: "🦊" }, ca)).status, 200);
+  assert.deepEqual((await get("/api/users/me/profile", ca)).body.avatar, { color: "rose", mode: "emoji", emoji: "🦊" });
+  assert.equal((await put("/api/users/me/profile", { display: "x", color: "pink", mode: "initial", emoji: "🦊" }, ca)).status, 400, "colour not on the list");
+  assert.equal((await put("/api/users/me/profile", { display: "x".repeat(33), color: "rose", mode: "initial", emoji: "🦊" }, ca)).status, 400, "name too long");
+  assert.equal((await put("/api/users/me/profile", { display: "x", color: "rose", mode: "emoji", emoji: "<script>" }, ca)).status, 400, "only emoji from the list");
+  const tree = (await get("/api/tree", cb)).body, tile = tree.boards.find((b: any) => b.id === "shared1");
+  assert.equal(tree.people.alice.display, "Ala 🙂", "the people you share with see the shown name");
+  assert.deepEqual([...tile.members].sort(), ["alice", "bob"]); assert.ok(tile.cards === 1 && tile.at >= 1, "a tile carries its member list, card count and last change");
+
+  // other devices, password change, account deletion
+  const ca2 = await login("alice"), sa2 = await sock(ca2);
+  assert.equal((await post("/api/auth/logout-all", {}, ca)).status, 200);
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(sa2.connected, false, "the other device's open connection is closed too"); assert.equal(sa.connected, true, "this device's stays");
+  assert.equal((await get("/api/auth/me", ca2)).status, 401, "the other device is signed out");
+  assert.equal((await get("/api/auth/me", ca)).status, 200, "this one stays");
+  assert.equal((await post("/api/auth/password", { password: "not the one", next: "a new password" }, ca)).status, 401, "needs the current password");
+  assert.equal((await post("/api/auth/password", { password: "correct horse", next: "short" }, ca)).status, 400);
+  const ca3 = await login("alice");
+  assert.equal((await post("/api/auth/password", { password: "correct horse", next: "a new password" }, ca)).status, 200);
+  assert.equal((await get("/api/auth/me", ca3)).status, 401, "a password change ends the other sessions");
+  assert.equal((await post("/api/auth/login", { name: "alice", password: "correct horse" })).status, 401, "the old password is gone");
+  assert.equal((await post("/api/auth/delete", { password: "not the one" }, ca)).status, 401, "deleting needs the password too");
+  assert.equal((await post("/api/auth/delete", { password: "a new password" }, ca)).status, 200);
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(sa.connected, false, "its open sockets are closed");
+  assert.equal((await get("/api/auth/me", ca)).status, 401);
+  assert.equal((await post("/api/auth/login", { name: "alice", password: "a new password" })).status, 401, "the account is gone");
+  assert.ok(![...(await get("/api/tree", cb)).body.boards].some((b: any) => b.id === "shared1"), "so is the board alice owned, for bob too");
+  assert.equal((await post("/api/auth/signup", { name: "alice", password: "correct horse" })).status, 200, "the name is free again");
   await post("/api/auth/logout", {}, cb);
   assert.equal((await get("/api/auth/me", cb)).status, 401, "logged out");
   sa.close(); sb.close(); await as.close();
