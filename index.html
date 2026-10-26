@@ -269,6 +269,16 @@
   .shape-ghost svg { width: 40px; height: 30px; margin: 6px; fill: none; stroke: currentColor; stroke-width: 1.6; }
   #tplpop { position: fixed; z-index: 13; top: 64px; left: 50%; transform: translateX(-50%); width: min(760px, calc(100vw - 16px)); max-height: calc(100vh - 90px); max-height: calc(100dvh - 90px); overflow-y: auto; box-sizing: border-box; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow-lift); touch-action: pan-y; }
   #tplpop[hidden] { display: none; }
+  /* "Add a template": bottom right, above the zoom bar (on a phone above the tool strip, and out of the way while the options bar is up) */
+  #tplBtn { position: fixed; right: 12px; bottom: 66px; z-index: 9; display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; font-weight: 600; box-shadow: var(--shadow); }
+  #tplBtn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  body.presenting #tplBtn, body.kb #tplBtn { display: none; }
+  @media (max-width: 640px) { #tplBtn { right: 8px; bottom: calc(max(8px, env(safe-area-inset-bottom)) + 62px); } body:has(#ctx > .pill:not([hidden])) #tplBtn { display: none; } }
+  #yndlg { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 16px; background: rgb(22 26 33 / .45); user-select: none; }
+  #yndlg .pill { display: grid; gap: 10px; width: min(420px, 100%); padding: 18px; color: var(--ink); box-shadow: var(--shadow-lift); }
+  #yndlg p { margin: 0; font-size: 16px; font-weight: 600; } #yndlg small { color: var(--muted); }
+  #yndlg .ynrow { display: flex; gap: 10px; justify-content: flex-end; margin-top: 6px; } #yndlg .btn { min-width: 84px; min-height: 44px; }
+  #yndlg .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   #tplpop .tpl-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; } #tplpop .tpl-head b { flex: 1 1 auto; } #tplpop #tplq { flex: 1 1 160px; min-height: 40px; box-sizing: border-box; }
   #tplgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
   #tplgrid .tpl { display: grid; grid-template-columns: 36px 1fr; gap: 2px 10px; align-items: start; text-align: left; padding: 10px; min-height: 84px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); color: var(--ink); cursor: pointer; font: inherit; }
@@ -495,9 +505,14 @@
 </nav>
 <div id="shapepop" hidden role="dialog" aria-label="Shapes"></div>
 <div id="tplpop" hidden role="dialog" aria-label="Board templates">
-  <div class="tpl-head"><b>Start a board from a template</b><input id="tplq" name="tplq" placeholder="Search templates" autocomplete="off" aria-label="Search templates"><button class="btn" id="tplclose">Close</button></div>
+  <div class="tpl-head"><b>Add a template to this board</b><input id="tplq" name="tplq" placeholder="Search templates" autocomplete="off" aria-label="Search templates"><button class="btn" id="tplclose">Close</button></div>
   <div id="tplgrid"></div>
 </div>
+<button class="btn" id="tplBtn" hidden title="Fill this board from a ready-made layout"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><path d="M17 14v6M14 17h6"/></svg>Add a template</button>
+<div id="yndlg" hidden><div class="pill" role="alertdialog" aria-modal="true" aria-labelledby="yntext">
+  <p id="yntext"></p><small id="ynsub"></small>
+  <div class="ynrow"><button class="btn" id="ynno">No</button><button class="btn primary" id="ynyes">Yes</button></div>
+</div></div>
 <input type="file" id="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
 <div id="top">
   <div id="side">
@@ -524,7 +539,6 @@
   <button class="item" id="expBtn" title="Export this board">Export</button>
   <button class="item" id="impBtn" title="Import a board">Import</button>
   <button class="item" id="shareBtn" title="Choose who can open and edit this board">Share this board</button>
-  <button class="item" id="tplBtn" title="Start a new board from a ready-made layout">Board templates</button>
   <button class="item" id="outBtn" title="Log out" hidden></button>
 </div>
 <div class="pill" id="bgpop" hidden>
@@ -1324,8 +1338,21 @@ $("shapebar").onclick = (e) => {
   updateMany(shapeIds().map((id) => ({ id, changes: { [prop]: val } }))); // one action, one undo step
 };
 
-// --- board templates: a ready-made layout (templates.js) becomes a new board tile with its cards inside, in one undo step, and opens ---
-const tplEntries = () => [{ id: "", icon: "layout-grid", title: "Blank board", desc: "An empty board to fill yourself.", words: "empty new nowa pusta" }, ...TEMPLATES.list.map((t) => ({ id: t.id, icon: t.icon, title: TEMPLATES.tx(t.title), desc: TEMPLATES.tx(t.desc), words: t.words }))];
+// --- board templates: "Add a template" fills THIS board with a ready-made layout (templates.js). A board that already has cards is cleared first, after a Yes/No question; the old cards go to the Trash ---
+const askYesNo = (text, sub = "") => new Promise((done) => {
+  const dlg = $("yndlg"), yes = $("ynyes"), no = $("ynno");
+  $("yntext").textContent = text; $("ynsub").textContent = sub; dlg.hidden = false; no.focus(); // "No" is the one under Enter: nothing is lost by accident
+  const end = (v) => { dlg.hidden = true; removeEventListener("keydown", key, true); done(v); };
+  const key = (e) => {
+    if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); end(false); }
+    else if (e.key === "Tab") { e.preventDefault(); (document.activeElement === no ? yes : no).focus(); }
+    else e.stopPropagation(); // typing is not a board shortcut while the question is open
+  };
+  addEventListener("keydown", key, true);
+  yes.onclick = () => end(true); no.onclick = () => end(false);
+  dlg.onpointerdown = (e) => { e.stopPropagation(); if (e.target === dlg) end(false); };
+});
+const tplEntries = () => [...TEMPLATES.list.map((t) => ({ id: t.id, icon: t.icon, title: TEMPLATES.tx(t.title), desc: TEMPLATES.tx(t.desc), words: t.words }))];
 const escH = (v) => String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" })[c]);
 $("tplgrid").innerHTML = tplEntries().map((t) => `<button class="tpl" data-id="${t.id}" data-q="${escH(`${t.title} ${t.desc} ${t.words}`)}">${iconSvg(t.icon)}<b>${escH(t.title)}</b><span>${escH(t.desc)}</span></button>`).join("");
 const closeTpl = () => ($("tplpop").hidden = true);
@@ -1333,10 +1360,18 @@ function openTemplates() { $("tplq").value = ""; $("tplq").oninput(); $("tplpop"
 $("tplq").oninput = () => { const tokens = foldWords($("tplq").value); $("tplgrid").querySelectorAll(".tpl").forEach((b) => { const words = foldWords(b.dataset.q); b.hidden = !tokens.every((t) => words.some((w) => wordHit(t, w))); }); };
 async function useTemplate(id) {
   closeTpl();
-  const t = TEMPLATES.list.find((x) => x.id === id);
-  if (!t) return void $("brd").onclick(); // "Blank board"
-  await place({ items: [{ id: "tpl", type: "BOARD", content: { title: TEMPLATES.tx(t.title), icon: t.icon }, x: 0, y: 0, kids: [], subtree: TEMPLATES.build(t) }] }, freeSpot("BOARD"));
-  const made = [...sel][0]; if (made && els[made]?.elementType === "BOARD") location.hash = made;
+  const t = TEMPLATES.list.find((x) => x.id === id), old = Object.keys(els).filter((k) => els[k].location.parentId === B); // what sits on this board (cards inside columns go with their column)
+  if (!t) return;
+  if (old.length && !(await askYesNo("Hey, your elements on this board will be deleted to make room for the template. Are you sure you want to do this?", "They go to the Trash, and Undo (Ctrl+Z) brings them back."))) return;
+  const board = B;
+  if (old.length) await trashIds(old);
+  if (B !== board) return; // moved to another board while the question was open
+  const deep = []; cloneSubtree(TEMPLATES.build(t), board, deep);
+  const rs = await Promise.all(deep.map((el) => send({ type: "ELEMENT_CREATE", ...el })));
+  await resync();
+  if (rs.some((r) => r.status !== 200)) return;
+  pushHistory({ kind: "move", moves: deep.filter((e) => e.location.parentId === board).map((el) => ({ id: el.id, from: trashOf(el.location), to: el.location })) }); // undoing it sends the template's cards to the Trash
+  if (topCards().length) fit(ZOOM_100);
 }
 $("tplgrid").onclick = (e) => { const b = e.target.closest(".tpl"); if (b) useTemplate(b.dataset.id); };
 $("tplBtn").onclick = openTemplates; $("tplclose").onclick = closeTpl;
@@ -1709,6 +1744,7 @@ function wire(d) {
         lastTap = { t: now, id: d.id, x: e.clientX, y: e.clientY };
         if (prev && prev.id === d.id && now - prev.t < 400 && Math.hypot(e.clientX - prev.x, e.clientY - prev.y) < 30) { lastTap = null; return void openCard(tg); }
       }
+      if (!touch && !mod && was && sel.size === 1 && type() === "BOARD" && tg.closest?.(".title")) return void startEdit(); // a mouse or Pencil click on the name of the selected board renames it (a double click still opens it; touch keeps double-tap = open and renames from the menu)
       if (mod && was) setSel([...sel].filter((id) => id !== d.id));
       else if (!mod && was && sel.size > 1) setSel([d.id]);
       return;
@@ -2368,7 +2404,7 @@ const ago = (t) => {
 function cardMenu() {
   const ids = [...sel].filter((id) => els[id]), one = ids.length === 1 ? els[ids[0]] : null, locked = ids.every((id) => els[id].content.locked), by = one?.meta.creator;
   return [
-    ...(one?.elementType === "BOARD" ? [{ label: "Open", run: () => { location.hash = one.id; } }, "-"] : []),
+    ...(one?.elementType === "BOARD" ? [{ label: "Open", run: () => { location.hash = one.id; } }, { label: "Rename", key: "F2", run: () => $(one.id)?.startEdit() }, "-"] : []),
     ...(one?.elementType === "IMAGE" ? [{ label: "Rotate", run: () => rotateImage(one) }, { label: "Download Original", run: () => downloadImage(one) }, "-"] : []),
     ...(one?.elementType === "LINK" ? [
       ...[["Picture", "hideImage", one.content.previewImage], ["Description", "hideDesc", one.content.previewDesc], ["Address", "hideUrl", one.content.url]]
@@ -2778,7 +2814,7 @@ async function enter() {
     view = loadView(next); applyView(false); // not saved: B is still the old board here, and a pending save for it must not be replaced
     $("q").value = ""; runSearch(); $("bgpop").hidden = true; sharedlg.hidden = true;
   } // a reconnect keeps the canvas and the view; load() below reconciles it with the server
-  B = next;
+  B = next; $("tplBtn").hidden = B === HOME; // not on the Home canvas: it holds your workspaces, and a template would clear them from view
   if (ack.status !== 200) { $("canvas").innerHTML = ""; els = {}; status("bad", `No access to ${next} as ${uid}`); return; }
   joined = next + "-LIVE";
   await load(); await crumbs();

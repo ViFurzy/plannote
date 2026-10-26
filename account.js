@@ -77,6 +77,12 @@ document.head.append(Object.assign(document.createElement("style"), { textConten
     #psheet { padding: 0; align-items: end; } .pn-sheet { border-radius: 20px 20px 0 0; width: 100%; max-height: 90dvh; }
     .ph-top { padding: 10px 12px; } .ph-top .btn-label { display: none; } .ph-wrap { padding: 4px 12px 80px; } .ph-greet h1 { font-size: 28px; } .ph-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
   }
+  #nbdlg { position: fixed; inset: 0; z-index: 55; background: rgb(22 26 33 / .45); display: grid; place-items: center; padding: 20px; user-select: text; -webkit-user-select: text; } #nbdlg:focus { outline: none; }
+  #nbdlg .pn-sheet { width: min(560px, 100%); } #nb-h { flex: 1; } .nb-l { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
+  .nb-tpl { display: flex; flex-wrap: wrap; gap: 8px; max-height: 200px; overflow-y: auto; touch-action: pan-y; }
+  .nb-chip { min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; } .nb-chip:hover { border-color: var(--accent); }
+  .nb-chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  @media (max-width: 700px) { #nbdlg { padding: 0; align-items: end; } #nbdlg .pn-sheet { border-radius: 20px 20px 0 0; width: 100%; max-height: 90dvh; } }
   @media (prefers-reduced-motion: reduce) { .ph-card, .pn-sheet summary::after, .pn-toast { transition: none; } .ph-skel { animation: none; } }
 ` }));
 
@@ -284,7 +290,7 @@ Hs("#ph-res").onclick = (e) => {
   const o = e.target.closest(".open"), a = e.target.closest("[data-act]");
   if (o) { closeHome(); goTo(o.dataset.id); }
   else if (a?.dataset.act === "new") newBoard();
-  else if (a?.dataset.act === "tpl") withCanvas(() => $("tplBtn").click());
+  else if (a?.dataset.act === "tpl") newBoard();
 };
 // run something on the Home canvas once it is open and live (the existing tools create the board and open it for naming)
 function withCanvas(run) {
@@ -292,7 +298,44 @@ function withCanvas(run) {
   if (location.hash.slice(1)) location.hash = "";
   const t0 = Date.now(), t = setInterval(() => { if ((B === HOME && $("st").dataset.state === "live") || Date.now() - t0 > 6000) { clearInterval(t); if (B === HOME) run(); } }, 80);
 }
-function newBoard() { withCanvas(() => $("brd").click()); }
+// New board = a fresh workspace of its own: it is made under your Home, then opened full screen (not dropped onto the Home canvas). A template can fill it from the start.
+const nb = sealed(el(`<div id="nbdlg" hidden tabindex="-1"><form class="pn-sheet" role="dialog" aria-modal="true" aria-labelledby="nb-h" novalidate>
+  <div class="pn-top"><b id="nb-h">New board</b><button type="button" class="pn-x" id="nb-x" aria-label="Close">×</button></div>
+  <p style="margin:0;color:var(--muted)">A fresh workspace of its own. Give it a name and, if you like, start from a template.</p>
+  <label class="nb-l">Name<input id="nb-name" maxlength="100" placeholder="Untitled board" autocomplete="off"></label>
+  <div class="nb-tpl" id="nb-tpl" role="group" aria-label="Start from"></div>
+  <div class="pn-row" style="justify-content:flex-end"><button type="button" class="pn-btn" id="nb-cancel">Cancel</button><button class="pn-btn primary" id="nb-go">Create board</button></div></form></div>`));
+document.body.append(nb);
+const N = (s) => nb.querySelector(s);
+let nbTpl = "", nbTyped = false;
+const nbChips = () => [{ id: "", title: "Blank" }, ...TEMPLATES.list.map((t) => ({ id: t.id, title: TEMPLATES.tx(t.title) }))];
+function drawChips() { N("#nb-tpl").replaceChildren(...nbChips().map((c) => Object.assign(h("button", "nb-chip" + (c.id === nbTpl ? " on" : ""), c.title), { type: "button", onclick: () => { nbTpl = c.id; if (!nbTyped) N("#nb-name").value = c.id ? c.title : ""; drawChips(); } }))); }
+function newBoard() { nbTpl = ""; nbTyped = false; N("#nb-name").value = ""; drawChips(); nb.hidden = false; N("#nb-name").focus(); }
+const closeNew = () => (nb.hidden = true);
+N("#nb-name").oninput = () => (nbTyped = true);
+N("#nb-x").onclick = N("#nb-cancel").onclick = closeNew;
+nb.addEventListener("pointerdown", (e) => { if (e.target === nb) closeNew(); });
+nb.addEventListener("keydown", (e) => {
+  e.stopPropagation();
+  if (e.key === "Escape") return closeNew();
+  if (e.key !== "Tab") return;
+  const f = [...nb.querySelectorAll("button, input")].filter((n) => !n.disabled && n.offsetParent);
+  if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f.at(-1).focus(); } else if (!e.shiftKey && document.activeElement === f.at(-1)) { e.preventDefault(); f[0].focus(); }
+});
+N("form").onsubmit = async (e) => {
+  e.preventDefault();
+  const go = N("#nb-go"); go.disabled = true;
+  const parent = homeData?.home ?? HOME ?? (await j("/api/users/me/app-init")).body.homeBoardId, t = TEMPLATES.list.find((x) => x.id === nbTpl);
+  const taken = homeData ? homeData.boards.filter((b) => b.parent === parent).length : 0; // a spot on the Home canvas, where this workspace's tile sits
+  const board = newElement("BOARD", { title: N("#nb-name").value.trim() || "Untitled board", ...(t && { icon: t.icon }) }, { x: (taken % 6) * 150, y: Math.floor(taken / 6) * 180 });
+  board.location.parentId = parent;
+  const deep = []; if (t) cloneSubtree(TEMPLATES.build(t), board.id, deep);
+  const rs = await Promise.all([board, ...deep].map((x) => send({ type: "ELEMENT_CREATE", ...x }))); // the board first, so the server knows each parent
+  go.disabled = false;
+  if (rs.some((r) => r.status !== 200)) return toast("Could not create the board.");
+  closeNew(); closeHome(); homeData = null;
+  location.hash = board.id; // opens it as the workspace you are in
+};
 Hs("#ph-new").onclick = newBoard;
 Hs("#ph-canvas").onclick = () => withCanvas(() => {});
 homeBtn.onclick = () => (home.hidden ? openHome() : closeHome());
@@ -300,7 +343,7 @@ addEventListener("hashchange", () => { if (!home.hidden && location.hash.slice(1
 home.addEventListener("keydown", (e) => { if (e.key === "Escape" && sheet.hidden && document.activeElement?.id !== "ph-q") { e.stopPropagation(); withCanvas(() => {}); } else e.stopPropagation(); });
 addEventListener("keydown", (e) => { // focus can be on the page itself (a button that went away): Escape still closes the top layer
   if (e.key !== "Escape") return;
-  if (!sheet.hidden) closeSheet(); else if (!home.hidden) withCanvas(() => {});
+  if (!nb.hidden) closeNew(); else if (!sheet.hidden) closeSheet(); else if (!home.hidden) withCanvas(() => {});
 });
 
 window.__account = { openHome, openSheet }; // test hook

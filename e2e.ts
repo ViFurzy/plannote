@@ -521,27 +521,47 @@ await test("templates: every one is well formed, the picker finds one by word, u
     return [T.list.length, problems];
   });
   assert.deepEqual(bad, [12, []]);
-  const home = await page.evaluate(() => (0, eval)("B"));
-  await page.click("#gearBtn"); await page.click("#tplBtn");
-  assert.equal(await page.locator("#tplgrid .tpl:visible").count(), 13, "blank + twelve templates");
+  assert.equal(await page.locator("#tplBtn").isVisible(), false, "no Add a template on the Home canvas");
+  await add(page, "brd", "Work"); await page.locator("#canvas > .board").dblclick(); await settle(page, 1200); // into a board of its own
+  assert.equal(await page.locator("#tplBtn").isVisible(), true, "Add a template is there inside a board");
+  const b = await box(page, "#tplBtn"); assert.ok(b.x + b.width > 1300 && b.y + b.height > 700, "bottom right of the screen");
+  const board = await page.evaluate(() => (0, eval)("B"));
+  await page.click("#tplBtn");
+  assert.equal(await page.locator("#tplgrid .tpl:visible").count(), 12, "the twelve templates");
   await page.fill("#tplq", "tasks"); assert.equal(await page.locator("#tplgrid .tpl:visible").count(), 1, "found by a word"); assert.match(await page.locator("#tplgrid .tpl:visible").innerText(), /kanban/i);
   await page.fill("#tplq", "");
   await page.locator('#tplgrid .tpl[data-id="project"]').click(); await settle(page, 1200);
   assert.equal(await page.locator("#tplpop").isVisible(), false, "the picker closed");
-  assert.notEqual(await page.evaluate(() => (0, eval)("B")), home, "the new board is open");
+  assert.equal(await page.locator("#yndlg").isVisible(), false, "an empty board is filled without asking");
+  assert.equal(await page.evaluate(() => (0, eval)("B")), board, "the template went into this board");
   const inside = (await stored(page));
-  assert.ok(inside.filter((e) => e.elementType === "SHAPE").length >= 4 && inside.filter((e) => e.elementType === "LINE").length === 3, "the new board opened with its shapes and three arrows");
+  assert.ok(inside.filter((e) => e.elementType === "SHAPE").length >= 4 && inside.filter((e) => e.elementType === "LINE").length === 3, "the board now holds the shapes and three arrows");
   const ids = new Set(inside.map((e) => e.id));
   assert.ok(inside.filter((e) => e.elementType === "LINE").every((l) => ids.has(l.content.from) && ids.has(l.content.to)), "arrows point at the copies, not the originals");
   assert.equal(await page.locator(".shape").count() >= 4, true);
-  await page.keyboard.press("Control+z"); await settle(page, 600);
+  // a board with cards asks first
+  const shapes = await page.locator(".shape").count();
+  await page.click("#tplBtn"); await page.locator('#tplgrid .tpl[data-id="kanban"]').click();
+  assert.equal(await page.locator("#yndlg").isVisible(), true, "cards on the board: it asks");
+  assert.match(await page.locator("#yntext").innerText(), /will be deleted to make room for the template/);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "ynno", "No is under the Enter key");
+  await page.click("#ynno"); await settle(page, 600);
+  assert.equal(await page.locator("#yndlg").isVisible(), false); assert.equal(await page.locator(".shape").count(), shapes, "No: nothing changed");
+  await page.click("#tplBtn"); await page.locator('#tplgrid .tpl[data-id="kanban"]').click(); await page.keyboard.press("Escape"); await settle(page, 400);
+  assert.equal(await page.locator(".shape").count(), shapes, "Escape is a No too");
+  await page.click("#tplBtn"); await page.locator('#tplgrid .tpl[data-id="kanban"]').click(); await page.click("#ynyes"); await settle(page, 1500);
+  assert.equal(await page.locator(".shape").count(), 0, "Yes: the old cards are gone");
+  assert.ok((await stored(page)).filter((e) => e.elementType === "COLUMN").length >= 3, "and the kanban columns are there");
+  await page.keyboard.press("Control+z"); await settle(page, 800); await page.keyboard.press("Control+z"); await settle(page, 800);
+  assert.equal(await page.locator(".shape").count(), shapes, "two Undos bring the old cards back");
 });
 
 await test("templates in Polish: the picker follows the browser language", async () => {
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 }, locale: "pl-PL" });
   const page = await ctx.newPage(); page.setDefaultTimeout(8000); await page.goto(`${URL}/?u=pl${Date.now().toString(36)}`);
   await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live");
-  await page.click("#gearBtn"); await page.click("#tplBtn");
+  await add(page, "brd", "Praca"); await page.locator("#canvas > .board").dblclick(); await settle(page, 1200);
+  await page.click("#tplBtn");
   assert.equal(await page.locator('#tplgrid .tpl[data-id="kanban"] b').innerText(), "Tablica kanban");
   await page.fill("#tplq", "kolumny"); assert.equal(await page.locator("#tplgrid .tpl:visible").count() >= 1, true, "found by a Polish word");
   await ctx.close();
@@ -1108,6 +1128,33 @@ await test("heading can be given a background colour", async ({ page }) => {
   assert.notEqual(await page.locator(".note.heading").evaluate((e) => getComputedStyle(e).backgroundColor), bare, "the heading now has a background");
 });
 
+await test("a board can be renamed after it is made: click its name once selected, or Rename in the menu (mouse); a touch tap on the name does not start editing", async ({ page }) => {
+  await add(page, "brd", "Trip"); await settle(page, 400);
+  const title = page.locator("#canvas > .board .title"), editing = () => title.evaluate((e) => (e as HTMLElement).isContentEditable);
+  await page.mouse.click(700, 600); await settle(page, 600); // nothing selected
+  await title.click(); assert.equal(await editing(), false, "the first click only selects the board");
+  await settle(page, 600); // slower than a double click, which opens the board
+  await title.click(); assert.equal(await editing(), true, "a second, separate click on the name edits it");
+  await page.keyboard.type("Lisbon"); await page.keyboard.press("Escape"); await settle(page, 500);
+  assert.equal(await title.innerText(), "Lisbon");
+  assert.equal(new globalThis.URL(page.url()).hash.length <= 1, true, "and the board was not opened");
+  await title.click({ button: "right" });
+  await page.locator("#cmenu button", { hasText: "Rename" }).click(); assert.equal(await editing(), true, "the right-click menu has Rename");
+  await page.keyboard.type("Porto"); await page.keyboard.press("Escape"); await settle(page, 500);
+  assert.equal(await title.innerText(), "Porto");
+  await title.dblclick(); await settle(page, 800); assert.ok(new globalThis.URL(page.url()).hash.length > 1, "a double click still opens it");
+
+  const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, hasTouch: true, isMobile: true });
+  const t = await ctx.newPage(); t.setDefaultTimeout(8000);
+  await t.goto(`${URL}/?u=ren${Date.now().toString(36)}`);
+  await t.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live");
+  await t.tap("#brd"); await t.keyboard.type("Garden"); await t.keyboard.press("Escape"); await settle(t, 500);
+  const tt = t.locator("#canvas > .board .title");
+  await t.mouse.move(5, 5); await tt.tap(); await settle(t, 700); await tt.tap(); await settle(t, 500);
+  assert.equal(await tt.evaluate((e) => (e as HTMLElement).isContentEditable), false, "touch: two slow taps on the name do not start editing");
+  await ctx.close();
+});
+
 await test("settings: Present is a full-screen icon at the bottom right; the top bar has no Background/Present/Theme text buttons", async ({ page }) => {
   const names = await page.locator("#top .btn:visible").allTextContents();
   assert.ok(!names.some((t) => /Background|Present|Theme|Export|Import/.test(t)), "none of them are in the top bar: " + names.join(","));
@@ -1462,9 +1509,12 @@ await test("accounts: welcome page, boards home, profile sheet with animated sec
     await shown(p, "#phome");
     assert.match(await p.locator("#ph-hi").innerText(), /^Good (morning|afternoon|evening), maja$/);
     assert.match(await p.locator("#ph-res").innerText(), /Make your first board/, "a new user sees the empty state");
-    await p.click("#ph-new"); await gone(p, "#phome"); await p.waitForSelector("#canvas > .board");
-    await p.keyboard.type("Trip to Lisbon"); await p.keyboard.press("Escape"); await settle(p, 600);
-    assert.equal(await p.locator("#ph-res .ph-card").count(), 0, "(the canvas is showing, not the home page)");
+    await p.click("#ph-new"); await shown(p, "#nbdlg");
+    assert.equal(await p.evaluate(() => document.activeElement?.id), "nb-name", "New board asks for a name first");
+    await p.fill("#nb-name", "Trip to Lisbon"); await p.click("#nb-go"); await gone(p, "#phome"); await settle(p, 1200);
+    assert.ok((p.url().split("#")[1] ?? "").length > 0, "it opens at once as a workspace of its own");
+    assert.equal((await p.locator("#crumbs").innerText()).replace(/\s+/g, " "), "Home / Trip to Lisbon");
+    assert.equal(await p.locator("#canvas > .card").count(), 0, "a fresh, empty workspace, not a tile to double-click");
     await p.click("#homeBtn"); await shown(p, "#phome"); await p.waitForSelector(".ph-card");
     assert.equal(await p.locator(".ph-card .ph-meta b").first().innerText(), "Trip to Lisbon", "the new board is a tile");
     assert.equal(await p.locator(".ph-new").count(), 1, "a New board tile leads the grid");
@@ -1515,10 +1565,14 @@ await test("accounts: welcome page, boards home, profile sheet with animated sec
     await t.tap("#swap"); await t.fill("#name", "zosia"); await t.fill("#pw", "correct horse"); await t.tap("#go"); await live(t);
     await shown(t, "#phome");
     assert.ok(await t.evaluate(() => document.getElementById("phome")!.scrollWidth <= innerWidth), "home: nothing sideways");
-    await t.tap("#ph-new"); await gone(t, "#phome"); await t.waitForSelector("#canvas > .board");
-    await t.keyboard.type("Garden"); await t.keyboard.press("Escape"); await settle(t, 600);
+    await t.tap("#ph-new"); await shown(t, "#nbdlg");
+    const chip = await size(t, "#nb-tpl .nb-chip"); assert.ok(chip.height >= 44, "template chips are touch targets");
+    await t.locator("#nb-tpl .nb-chip").nth(1).tap(); assert.ok((await t.inputValue("#nb-name")).length > 0, "picking a template names the board after it");
+    await t.fill("#nb-name", "Garden"); await t.tap("#nb-go"); await gone(t, "#phome"); await settle(t, 1500);
+    assert.ok((await t.locator(".card").count()) > 3, "the new workspace starts filled with the template");
     const hb = await size(t, "#homeBtn"); assert.ok(hb.width >= 44 && hb.height >= 44 && hb.x >= 0 && hb.x + hb.width <= 390, "the home button is a 44px target inside the screen");
     assert.equal(await t.locator("#meBtn").isVisible(), false, "phone: the full top bar leaves the avatar out");
+    const fab = await size(t, "#tplBtn"); assert.ok(fab.height >= 40 && fab.x + fab.width <= 390 && fab.x > 150 && fab.y + fab.height < 844 - 52, "phone: Add a template sits at the bottom right, above the tool strip");
     await t.tap("#gearBtn"); await t.tap("#profileItem"); await shown(t, "#psheet"); await t.tap("#pn-close"); await gone(t, "#psheet"); // Profile is in the gear menu instead
     await t.tap("#homeBtn"); await shown(t, "#phome"); await t.waitForSelector(".ph-card");
     const tile = await size(t, ".ph-card"), cols = await t.evaluate(() => getComputedStyle(document.querySelector(".ph-grid")!).gridTemplateColumns.split(" ").length);
