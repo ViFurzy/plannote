@@ -307,6 +307,10 @@ export function createServer(port: number, dbFile = ":memory:", opts: { allowPri
     }
     if (u.pathname === "/portable.js") return send(req, res, "./portable.js", "text/javascript", "no-cache"); // export / import
     if (u.pathname === "/icons.js") return send(req, res, "./icons.js", "text/javascript", "no-cache"); // the board icon library
+    if (u.pathname === "/manifest.webmanifest") return send(req, res, "./public/manifest.webmanifest", "application/manifest+json", "no-cache"); // "Add to Home Screen"
+    const pwa = /^\/pwa\/(icon-192|icon-512|apple-touch-icon)\.png$/.exec(u.pathname);
+    if (pwa) return send(req, res, `./public/${pwa[1]}.png`, "image/png", "public, max-age=86400");
+    if (u.pathname === "/templates.js") return send(req, res, "./templates.js", "text/javascript", "no-cache"); // board templates
     if (u.pathname === "/shapes.js") return send(req, res, "./shapes.js", "text/javascript", "no-cache"); // shape geometry
     const reply = (status: number, body: unknown = {}) => void res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));
     // media ids are unguessable (a capability URL): <img> cannot send our identity header, so reads are public by id

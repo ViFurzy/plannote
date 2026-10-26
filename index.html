@@ -1,6 +1,8 @@
 <!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>boardsync</title>
+<link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="boardsync">
 <style>
   :root {
     color-scheme: light dark;
@@ -263,14 +265,27 @@
   .sketch .grip { pointer-events: auto; }
   .sketch svg { display: block; width: 100%; height: auto; }
   .sketch .ink, #draft path { fill: none; stroke: var(--ink); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
-  #shapepop { position: fixed; z-index: 12; display: grid; grid-template-columns: repeat(5, 52px); gap: 4px; padding: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); max-width: calc(100vw - 16px); box-sizing: content-box; touch-action: pan-y; }
+  .shape-ghost { position: fixed; left: 0; top: 0; z-index: 30; width: 52px; height: 44px; pointer-events: none; opacity: .85; color: var(--ink); background: var(--surface); border: 1px solid var(--accent); border-radius: 8px; }
+  .shape-ghost svg { width: 40px; height: 30px; margin: 6px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+  #tplpop { position: fixed; z-index: 13; top: 64px; left: 50%; transform: translateX(-50%); width: min(760px, calc(100vw - 16px)); max-height: calc(100vh - 90px); max-height: calc(100dvh - 90px); overflow-y: auto; box-sizing: border-box; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow-lift); touch-action: pan-y; }
+  #tplpop[hidden] { display: none; }
+  #tplpop .tpl-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; } #tplpop .tpl-head b { flex: 1 1 auto; } #tplpop #tplq { flex: 1 1 160px; min-height: 40px; box-sizing: border-box; }
+  #tplgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+  #tplgrid .tpl { display: grid; grid-template-columns: 36px 1fr; gap: 2px 10px; align-items: start; text-align: left; padding: 10px; min-height: 84px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); color: var(--ink); cursor: pointer; font: inherit; }
+  #tplgrid .tpl:hover { border-color: var(--accent); background: var(--accent-soft); }
+  #tplgrid .tpl svg { grid-row: 1 / span 2; width: 32px; height: 32px; fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  #tplgrid .tpl b { font-size: 14px; } #tplgrid .tpl span { font-size: 12px; color: var(--muted); }
+  #shapepop #shapegrid { display: grid; grid-template-columns: repeat(5, 52px); gap: 4px; margin-top: 6px; }
+  #shapepop #shapeq { width: 100%; box-sizing: border-box; min-height: 36px; }
+  #shapepop button[hidden] { display: none; }
+  #shapepop { position: fixed; z-index: 12; padding: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); max-width: calc(100vw - 16px); box-sizing: content-box; touch-action: pan-y; }
   #shapepop[hidden] { display: none; }
   #shapepop button { width: 52px; height: 44px; padding: 0; display: grid; place-items: center; background: none; border: 1px solid transparent; border-radius: 8px; color: var(--ink); cursor: pointer; }
   #shapepop button:hover, #shapepop button.on { background: var(--accent-soft); border-color: var(--accent); }
   #shapepop svg { width: 40px; height: 30px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
   /* shapes: the card is only a box; the outline is an svg regenerated at the card's size (so the line stays the same thickness), the text sits in the middle */
-  .card.shape, .card.shape[data-tint]:not(.board) { padding: 0; min-width: 0; background: none; border-color: transparent; box-shadow: none; pointer-events: none; }
-  .card.shape:hover { border-color: transparent; box-shadow: none; }
+  .card.shape, .card.shape[data-tint]:not(.board) { padding: 0; min-width: 0; background: none; border: 0; box-shadow: none; pointer-events: none; }
+  .card.shape:hover { box-shadow: none; }
   .shape .grip { pointer-events: auto; }
   .shape .shp { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
   .shape .shp path { fill: none; stroke: var(--ink); stroke-width: var(--sw, 2); stroke-linejoin: round; stroke-linecap: round; pointer-events: none; }
@@ -479,6 +494,10 @@
   <button class="tool" id="trashBtn" title="Drag cards here to delete them. Or select cards and press Delete."><svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12M10 11v5M14 11v5"/></svg>Trash</button>
 </nav>
 <div id="shapepop" hidden role="dialog" aria-label="Shapes"></div>
+<div id="tplpop" hidden role="dialog" aria-label="Board templates">
+  <div class="tpl-head"><b>Start a board from a template</b><input id="tplq" name="tplq" placeholder="Search templates" autocomplete="off" aria-label="Search templates"><button class="btn" id="tplclose">Close</button></div>
+  <div id="tplgrid"></div>
+</div>
 <input type="file" id="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
 <div id="top">
   <div id="side">
@@ -505,6 +524,7 @@
   <button class="item" id="expBtn" title="Export this board">Export</button>
   <button class="item" id="impBtn" title="Import a board">Import</button>
   <button class="item" id="shareBtn" title="Choose who can open and edit this board">Share this board</button>
+  <button class="item" id="tplBtn" title="Start a new board from a ready-made layout">Board templates</button>
   <button class="item" id="outBtn" title="Log out" hidden></button>
 </div>
 <div class="pill" id="bgpop" hidden>
@@ -618,6 +638,7 @@
 <script src="/socket.io/socket.io.js"></script>
 <script src="/icons.js"></script>
 <script src="/shapes.js"></script>
+<script src="/templates.js"></script>
 <script>
 const sid = Math.random().toString(36).slice(2, 8);
 let HOME, B = "", joined = null, n = 0, els = {}, loading = false; // HOME = this user's root board, from app-init
@@ -1259,19 +1280,41 @@ $("linebar").onclick = (e) => {
 // --- shapes: a picker (from the Shape tool, or to change the selected shapes) and the options of the selected shapes ---
 const shapeIcon = (k) => { const [w, h] = [36, 28]; return `<svg viewBox="0 0 ${w} ${h}">${SHAPES.poly(k, w, h, 2).map((r) => `<path d="${SHAPES.pathD([r])}"/>`).join("")}</svg>`; };
 let shapePick = null;
-$("shapepop").innerHTML = SHAPES.KINDS.map(([k, en, pl]) => `<button data-kind="${k}" title="${en} / ${pl}" aria-label="${en}">${shapeIcon(k)}</button>`).join("");
-function openShapes(anchor, onPick, current) { // opens next to the button that asked for it; a click on a shape calls onPick(kind)
-  const pop = $("shapepop"); shapePick = onPick; pop.hidden = false;
+$("shapepop").innerHTML = '<input id="shapeq" name="shapeq" placeholder="Search shapes" autocomplete="off" aria-label="Search shapes"><div id="shapegrid">' + SHAPES.KINDS.map(([k, en, pl]) => `<button data-kind="${k}" title="${en} / ${pl}" aria-label="${en}">${shapeIcon(k)}</button>`).join("") + "</div>";
+$("shapeq").oninput = () => { // by name or word, English or Polish, the way the icon picker finds icons
+  const tokens = foldWords($("shapeq").value);
+  SHAPES.KINDS.forEach(([k, en, pl, kw]) => { const words = foldWords(`${en} ${pl} ${kw}`); $("shapegrid").querySelector(`[data-kind=${k}]`).hidden = !tokens.every((t) => words.some((w) => wordHit(t, w))); });
+};
+function openShapes(anchor, onPick, current, dropAdds = false) { // opens next to the button that asked for it; a click on a shape calls onPick(kind); dropAdds: a shape can also be dragged out onto the board
+  const pop = $("shapepop"); shapePick = onPick; shapeDropAdd = dropAdds; pop.hidden = false; $("shapeq").value = ""; $("shapeq").oninput();
   pop.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.kind === current));
   const r = anchor.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight, side = r.right + 8 + w <= innerWidth && anchor.closest("#tools") && innerWidth > 640;
   const left = side ? r.right + 8 : r.left, top = side ? r.top : r.bottom + 8 + h <= innerHeight ? r.bottom + 8 : r.top - h - 8;
   pop.style.left = clamp(left, 8, Math.max(8, innerWidth - w - 8)) + "px"; pop.style.top = clamp(top, 8, Math.max(8, innerHeight - h - 8)) + "px";
 }
-const closeShapes = () => { $("shapepop").hidden = true; shapePick = null; };
+const closeShapes = () => { $("shapepop").hidden = true; shapePick = null; shapeDrag = null; shapeGhost?.remove(); shapeGhost = null; };
+// from the Shape tool a shape can also be dragged out of the picker and dropped where it should go (the same as dragging a tool out of the left panel)
+let shapeDrag = null, shapeGhost = null, shapeDropAdd = null;
+$("shapepop").addEventListener("pointerdown", (e) => { const b = e.target.closest("button[data-kind]"); if (b && e.button === 0 && shapeDropAdd) shapeDrag = { kind: b.dataset.kind, b, x: e.clientX, y: e.clientY, on: false }; });
+addEventListener("pointermove", (e) => {
+  if (!shapeDrag) return;
+  if (!shapeDrag.on) { if (Math.hypot(e.clientX - shapeDrag.x, e.clientY - shapeDrag.y) < 8) return; shapeDrag.on = true; shapeGhost = shapeDrag.b.cloneNode(true); shapeGhost.className = "shape-ghost"; document.body.append(shapeGhost); }
+  shapeGhost.style.transform = `translate(${e.clientX - 26}px, ${e.clientY - 22}px)`;
+});
+const endShapeDrag = (e, drop) => {
+  const d = shapeDrag; shapeDrag = null; shapeGhost?.remove(); shapeGhost = null;
+  if (!d?.on) return;
+  justDragged = true; setTimeout(() => (justDragged = false));
+  if (!drop || document.elementsFromPoint(e.clientX, e.clientY).some((n) => n.closest?.("#tools, #top, #ctx, #zoom, #bpanel, #outline, #trash, #shapepop"))) return; // dropped on the chrome: nothing is added
+  const p = toBoard(e.clientX, e.clientY); closeShapes();
+  dropPos = { x: Math.round(p.x - SIZE.SHAPE[0] / 2), y: Math.round(p.y - SIZE.SHAPE[1] / 2) };
+  try { add("SHAPE", { kind: d.kind, width: SIZE.SHAPE[0], height: SIZE.SHAPE[1] }); } finally { dropPos = null; }
+};
+addEventListener("pointerup", (e) => endShapeDrag(e, true)); addEventListener("pointercancel", (e) => endShapeDrag(e, false));
 $("shapepop").onclick = (e) => { const b = e.target.closest("button[data-kind]"), pick = shapePick; if (!b || !pick) return; closeShapes(); pick(b.dataset.kind); };
 addEventListener("pointerdown", (e) => { if (!$("shapepop").hidden && !e.target.closest("#shapepop, #shape, #shapeKind")) closeShapes(); }, true);
 addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("shapepop").hidden) { closeShapes(); e.stopPropagation(); } }, true);
-$("shape").onclick = () => ($("shapepop").hidden ? openShapes($("shape"), (kind) => add("SHAPE", { kind, width: SIZE.SHAPE[0], height: SIZE.SHAPE[1] })) : closeShapes());
+$("shape").onclick = () => ($("shapepop").hidden ? openShapes($("shape"), (kind) => add("SHAPE", { kind, width: SIZE.SHAPE[0], height: SIZE.SHAPE[1] }), undefined, true) : closeShapes());
 const shapeIds = () => [...sel].filter((id) => els[id]?.elementType === "SHAPE");
 $("shapeKind").onclick = () => ($("shapepop").hidden ? openShapes($("shapeKind"), (kind) => updateMany(shapeIds().map((id) => ({ id, changes: { kind } }))), els[shapeIds()[0]]?.content.kind) : closeShapes());
 $("shapebar").onclick = (e) => {
@@ -1280,6 +1323,25 @@ $("shapebar").onclick = (e) => {
   const prop = b.parentElement.dataset.prop, val = prop === "weight" ? Number(b.dataset.val) : b.dataset.val;
   updateMany(shapeIds().map((id) => ({ id, changes: { [prop]: val } }))); // one action, one undo step
 };
+
+// --- board templates: a ready-made layout (templates.js) becomes a new board tile with its cards inside, in one undo step, and opens ---
+const tplEntries = () => [{ id: "", icon: "layout-grid", title: "Blank board", desc: "An empty board to fill yourself.", words: "empty new nowa pusta" }, ...TEMPLATES.list.map((t) => ({ id: t.id, icon: t.icon, title: TEMPLATES.tx(t.title), desc: TEMPLATES.tx(t.desc), words: t.words }))];
+const escH = (v) => String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" })[c]);
+$("tplgrid").innerHTML = tplEntries().map((t) => `<button class="tpl" data-id="${t.id}" data-q="${escH(`${t.title} ${t.desc} ${t.words}`)}">${iconSvg(t.icon)}<b>${escH(t.title)}</b><span>${escH(t.desc)}</span></button>`).join("");
+const closeTpl = () => ($("tplpop").hidden = true);
+function openTemplates() { $("tplq").value = ""; $("tplq").oninput(); $("tplpop").hidden = false; }
+$("tplq").oninput = () => { const tokens = foldWords($("tplq").value); $("tplgrid").querySelectorAll(".tpl").forEach((b) => { const words = foldWords(b.dataset.q); b.hidden = !tokens.every((t) => words.some((w) => wordHit(t, w))); }); };
+async function useTemplate(id) {
+  closeTpl();
+  const t = TEMPLATES.list.find((x) => x.id === id);
+  if (!t) return void $("brd").onclick(); // "Blank board"
+  await place({ items: [{ id: "tpl", type: "BOARD", content: { title: TEMPLATES.tx(t.title), icon: t.icon }, x: 0, y: 0, kids: [], subtree: TEMPLATES.build(t) }] }, freeSpot("BOARD"));
+  const made = [...sel][0]; if (made && els[made]?.elementType === "BOARD") location.hash = made;
+}
+$("tplgrid").onclick = (e) => { const b = e.target.closest(".tpl"); if (b) useTemplate(b.dataset.id); };
+$("tplBtn").onclick = openTemplates; $("tplclose").onclick = closeTpl;
+addEventListener("pointerdown", (e) => { if (!$("tplpop").hidden && !e.target.closest("#tplpop, #tplBtn")) closeTpl(); }, true);
+addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("tplpop").hidden) { closeTpl(); e.stopPropagation(); } }, true);
 
 // a table is rows of text cells (at most 100 x 20, 500 characters a cell, whatever another client sent); the first row is the header
 const tableRows = (c) => {
@@ -1866,7 +1928,7 @@ addEventListener("pointerdown", (e) => {
   if (e.pointerType === "touch") lastTouch = Date.now();
   if (e.pointerType === "pen") fingers.clear(); // the Pencil is down: a resting hand's touches are not a gesture
   if (!$("picker").hidden && !e.target.closest("#picker, .sw.custom")) closePicker(); // a click anywhere else dismisses the picker
-  if (e.target.closest("#tools, #top, #trash, #zoom, #drawbar, #ctx, #bgpop, #picker, #iconpick, #outline, #bpanel, #shapepop")) return;
+  if (e.target.closest("#tools, #top, #trash, #zoom, #drawbar, #ctx, #bgpop, #picker, #iconpick, #outline, #bpanel, #shapepop, #tplpop")) return;
   if (e.button === 1 || (spaceDown && e.button === 0)) { e.preventDefault(); return startPan(e); }
   if (e.button === 0 && tool === "line") { e.preventDefault(); return startLine(e); }
   if (e.button === 0 && tool === "draw") { e.preventDefault(); return startStroke(e); }
@@ -2214,7 +2276,7 @@ function place(clip, base) { // base: the board point where the group's top-left
   const kids = clip.items.flatMap((it, i) => it.kids.map((k, j) => ({ ...newElement(k.type, structuredClone(k.content), {}), location: { parentId: made[i].id, section: "COLUMN", position: { score: 65536 * (j + 1) } } })));
   const deep = []; // the insides of copied boards: created on the server, shown only when you open that board
   clip.items.forEach((it, i) => { if (it.subtree) cloneSubtree(it.subtree, made[i].id, deep); });
-  commitMany(made, kids, deep);
+  return commitMany(made, kids, deep);
 }
 // several creations are one undo step; parents are created before their children so the server knows each parent
 function commitMany(created, kids = [], deep = []) {
@@ -2223,7 +2285,7 @@ function commitMany(created, kids = [], deep = []) {
   for (const t of created) if (t.elementType === "BOARD") counts[t.id] = tally(t.id, deep);
   shown.forEach(render);
   setSel(created.map((e) => e.id));
-  Promise.all([...shown, ...deep].map((el) => send({ type: "ELEMENT_CREATE", ...el }))).then((rs) => {
+  return Promise.all([...shown, ...deep].map((el) => send({ type: "ELEMENT_CREATE", ...el }))).then((rs) => {
     if (rs.some((r) => r.status !== 200)) return resync();
     pushHistory({ kind: "move", moves: created.map((el) => ({ id: el.id, from: trashOf(el.location), to: el.location })) });
   });
@@ -2846,6 +2908,8 @@ function outlineItem(e) {
     box.append(tb);
   } else if (t === "BOARD") {
     box.append(h("b", "", c.title || "Untitled board")); const open = h("button", "btn", "Open board"); open.onclick = () => { closeOutline(); goTo(e.id); }; box.append(open);
+  } else if (t === "SHAPE") {
+    box.append(h("span", "o-muted", SHAPES.KINDS.find((k) => k[0] === c.kind)?.[1] ?? "Shape"), editable("o-title", c.textContent ?? "", "Text in the shape", (v) => update(e, { textContent: v })));
   } else if (t === "SWATCH") {
     const chip = h("span", "o-chip"), row = h("div"); chip.style.background = HEX.test(c.color ?? "") ? c.color : "#ccc"; row.append(chip, h("span", "o-muted", c.color ?? "")); box.append(row);
   } else return null; // lines, drawings and comments have no text of their own to list
@@ -2864,7 +2928,7 @@ function openOutline() { setSel([]); outline.hidden = false; $("outlineBtn").cla
 function closeOutline() { outline.hidden = true; $("outlineBtn").classList.remove("on"); }
 $("outlineBtn").onclick = () => (outlineOpen() ? closeOutline() : openOutline());
 olist.addEventListener("focusout", scheduleOutline);
-s.on("connect", async () => { joined = null; await enter(); });
+s.on("connect", async () => { joined = null; navigator.storage?.persist?.().catch(() => {}); await enter(); }); // asks the browser not to clear this site's settings when it is short of space
 s.on("disconnect", () => status("wait", "Offline"));
 onhashchange = enter;
 window.__els = () => els; // test hook

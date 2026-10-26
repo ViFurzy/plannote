@@ -487,6 +487,81 @@ await test("shapes: pick one from the Shape tool, type in it, resize keeps the l
   assert.deepEqual(bad, [true, true, true]);
 });
 
+await test("shapes: search the picker in English and Polish, drag one out onto the board, the outline view lists its text", async ({ page }) => {
+  const shown = () => page.locator("#shapepop button[data-kind]:visible").evaluateAll((a) => a.map((b) => (b as HTMLElement).dataset.kind));
+  await page.click("#shape");
+  await page.fill("#shapeq", "serce"); assert.deepEqual(await shown(), ["heart"], "Polish name");
+  await page.fill("#shapeq", "storage"); assert.deepEqual(await shown(), ["cylinder"], "a search word");
+  await page.fill("#shapeq", "zzz"); assert.deepEqual(await shown(), []);
+  await page.fill("#shapeq", "serce");
+  await drag(page, mid(await box(page, '#shapepop [data-kind="heart"]')), { x: 700, y: 400 }, 10); await settle(page, 700);
+  const [s] = (await stored(page)).filter((e) => e.elementType === "SHAPE");
+  assert.equal(s.content.kind, "heart", "dropped on the board");
+  const c = mid(await box(page, ".shape")); within(c.x, 700, 12, "centred under the pointer x"); within(c.y, 400, 12, "centred under the pointer y");
+  assert.equal(await page.locator("#shapepop").isVisible(), false, "the picker closed");
+  await page.keyboard.type("Love"); await page.keyboard.press("Escape"); await settle(page, 600);
+  await page.click("#outlineBtn"); await settle(page, 400);
+  assert.equal(await page.locator("#olist .o-shape").count(), 1, "the outline lists the shape"); assert.match(await page.locator("#olist .o-shape").innerText(), /Heart/);
+});
+
+await test("templates: every one is well formed, the picker finds one by word, using it makes a board that opens with its cards and attached arrows", async ({ page }) => {
+  const bad = await page.evaluate(() => {
+    const T = (window as any).TEMPLATES, S = (window as any).SHAPES, problems: string[] = [];
+    for (const t of T.list) {
+      const list = T.build(t), ids = new Set(list.map((e: any) => e.id));
+      if (ids.size !== list.length) problems.push(t.id + ": duplicate ids");
+      if (list.length < 4) problems.push(t.id + ": too few cards");
+      for (const e of list) {
+        if (e.parent !== "root" && !ids.has(e.parent)) problems.push(t.id + ": missing parent");
+        if (e.type === "LINE" && !(ids.has(e.content.from) && ids.has(e.content.to))) problems.push(t.id + ": loose arrow");
+        if (e.type === "SHAPE" && !S.has(e.content.kind)) problems.push(t.id + ": bad shape");
+        if (!/^(CARD|COLUMN|TASK_LIST|TABLE|SHAPE|SWATCH|LINK|LINE)$/.test(e.type)) problems.push(t.id + ": type " + e.type);
+      }
+    }
+    return [T.list.length, problems];
+  });
+  assert.deepEqual(bad, [12, []]);
+  const home = await page.evaluate(() => (0, eval)("B"));
+  await page.click("#gearBtn"); await page.click("#tplBtn");
+  assert.equal(await page.locator("#tplgrid .tpl:visible").count(), 13, "blank + twelve templates");
+  await page.fill("#tplq", "tasks"); assert.equal(await page.locator("#tplgrid .tpl:visible").count(), 1, "found by a word"); assert.match(await page.locator("#tplgrid .tpl:visible").innerText(), /kanban/i);
+  await page.fill("#tplq", "");
+  await page.locator('#tplgrid .tpl[data-id="project"]').click(); await settle(page, 1200);
+  assert.equal(await page.locator("#tplpop").isVisible(), false, "the picker closed");
+  assert.notEqual(await page.evaluate(() => (0, eval)("B")), home, "the new board is open");
+  const inside = (await stored(page));
+  assert.ok(inside.filter((e) => e.elementType === "SHAPE").length >= 4 && inside.filter((e) => e.elementType === "LINE").length === 3, "the new board opened with its shapes and three arrows");
+  const ids = new Set(inside.map((e) => e.id));
+  assert.ok(inside.filter((e) => e.elementType === "LINE").every((l) => ids.has(l.content.from) && ids.has(l.content.to)), "arrows point at the copies, not the originals");
+  assert.equal(await page.locator(".shape").count() >= 4, true);
+  await page.keyboard.press("Control+z"); await settle(page, 600);
+});
+
+await test("templates in Polish: the picker follows the browser language", async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 }, locale: "pl-PL" });
+  const page = await ctx.newPage(); page.setDefaultTimeout(8000); await page.goto(`${URL}/?u=pl${Date.now().toString(36)}`);
+  await page.waitForFunction(() => (document.getElementById("st") as HTMLElement).dataset.state === "live");
+  await page.click("#gearBtn"); await page.click("#tplBtn");
+  assert.equal(await page.locator('#tplgrid .tpl[data-id="kanban"] b').innerText(), "Tablica kanban");
+  await page.fill("#tplq", "kolumny"); assert.equal(await page.locator("#tplgrid .tpl:visible").count() >= 1, true, "found by a Polish word");
+  await ctx.close();
+});
+
+await test("PNG export puts every card where it is on the board (a note and a shape both show up)", async ({ page }) => {
+  await add(page, "note", "a note"); await page.click("#shape"); await page.click('#shapepop [data-kind="star"]'); await page.keyboard.press("Escape"); await settle(page, 500);
+  await page.click("#gearBtn"); await page.click("#expBtn");
+  const [dl] = await Promise.all([page.waitForEvent("download"), page.click('#expop [data-x="png"]')]);
+  const file = join(shots, "export-check.png"); await dl.saveAs(file);
+  const dark = await page.evaluate(async (b64) => { // share of pixels that are not the background, in the left and right halves
+    const img = new Image(); img.src = "data:image/png;base64," + b64; await img.decode();
+    const c = document.createElement("canvas"); c.width = img.width; c.height = img.height; const g = c.getContext("2d")!; g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, c.width, c.height).data, bg = [d[0], d[1], d[2]]; let n = 0, tot = 0, edge = 0;
+    for (let i = 0; i < d.length; i += 4) { tot++; if (Math.abs(d[i] - bg[0]) + Math.abs(d[i + 1] - bg[1]) + Math.abs(d[i + 2] - bg[2]) > 30) { n++; const x = (i / 4) % c.width; if (x < 40 || x > c.width - 40) edge++; } }
+    return { share: n / tot, edge };
+  }, readFileSync(file).toString("base64"));
+  assert.ok(dark.share > 0.01, `the cards are drawn inside the picture (${dark.share})`); assert.equal(dark.edge, 0, "and nothing touches the edge padding");
+});
+
 await test("a picture larger than 2048 px is shrunk before it is uploaded; a small one is left alone", async ({ page }) => {
   const dir = mkdtempSync(join(tmpdir(), "e2e-big-")), big = join(dir, "big.png");
   const b64 = await page.evaluate(() => { const c = document.createElement("canvas"); c.width = 3200; c.height = 1600; const g = c.getContext("2d")!; g.fillStyle = "#3e63dd"; g.fillRect(0, 0, 3200, 1600); return c.toDataURL("image/png").split(",")[1]; });

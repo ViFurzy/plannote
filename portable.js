@@ -210,7 +210,7 @@ async function renderPng(scale) {
     inline(card, clone); // first: the clone must still match the original child for child
     clone.querySelectorAll(".grip, .h").forEach((n) => n.remove()); // then drop the editing handles
     ["selected", "found", "dragging", "attach-target"].forEach((c) => clone.classList.remove(c));
-    clone.style.left = parseFloat(cs.left) - l + pad + "px"; clone.style.top = parseFloat(cs.top) - t + pad + "px"; clone.style.outline = "none"; clone.style.opacity = "1";
+    clone.style.setProperty("left", parseFloat(cs.left) - l + pad + "px", "important"); clone.style.setProperty("top", parseFloat(cs.top) - t + pad + "px", "important"); // important: the copied styles also hold inset-inline-start and friends, which would otherwise win clone.style.outline = "none"; clone.style.opacity = "1";
     root.append(clone);
   }
   for (const img of root.querySelectorAll("img")) img.src = await blobToDataUrl(await (await fetch(img.src)).blob()).catch(() => "");

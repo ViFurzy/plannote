@@ -76,6 +76,15 @@ assert.equal(portable.status, 200);
 assert.match(portable.headers.get("content-type") ?? "", /javascript/);
 assert.match(await portable.text(), /boardsync-board/, "serves the real export/import code");
 
+// installable on a Home Screen: the manifest and its icons are served, and only those icon names
+const manifest = await fetch("http://localhost:3999/manifest.webmanifest");
+assert.equal(manifest.status, 200);
+const mf = (await manifest.json()) as any;
+assert.equal(mf.display, "standalone");
+for (const icon of mf.icons) { const r = await fetch("http://localhost:3999" + icon.src); assert.equal(r.status, 200); assert.equal(r.headers.get("content-type"), "image/png"); assert.equal((await r.arrayBuffer()).byteLength > 100, true); }
+assert.equal((await fetch("http://localhost:3999/pwa/apple-touch-icon.png")).status, 200);
+assert.equal((await fetch("http://localhost:3999/pwa/..%2Fserver.ts")).status === 200, false, "only the named icons are served");
+
 // home boards: random, per-user, idempotent; needs an identity
 const B1 = await home("alice"), B2 = await home("erin");
 assert.match(B1, /^[0-9a-f]{16}$/, "random id");
